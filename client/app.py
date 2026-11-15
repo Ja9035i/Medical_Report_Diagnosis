@@ -36,6 +36,8 @@ if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "username" not in st.session_state:
     st.session_state.username = ""
+if "full_name" not in st.session_state:
+    st.session_state.full_name = None
 if "role" not in st.session_state:
     st.session_state.role = ""
 if "auth" not in st.session_state:
@@ -44,11 +46,11 @@ if "auth" not in st.session_state:
 # API Functions :
 
 # 1. Signup Function (public signup always creates a patient account)
-def signup_user(username, password):
+def signup_user(username, password, full_name=None):
     try:
         response = requests.post(
             f"{API_URL}/auth/signup",
-            json={"username": username, "password": password}
+            json={"username": username, "password": password, "full_name": full_name}
         )
         return response.status_code, response.json()
     except requests.exceptions.ConnectionError:
@@ -123,12 +125,12 @@ def get_doctor_diagnosis(auth, patient_name):
         return 503, {"detail": "Server is unavailable. Please try again later."}
 
 # 6. Admin: create a user with a role (e.g. doctor)
-def admin_create_user(auth, username, password, role):
+def admin_create_user(auth, username, password, role, full_name=None):
     try:
         response = requests.post(
             f"{API_URL}/auth/users",
             auth=auth,
-            json={"username": username, "password": password, "role": role}
+            json={"username": username, "password": password, "role": role, "full_name": full_name}
         )
         return response.status_code, response.json()
     except requests.exceptions.ConnectionError:
@@ -256,6 +258,7 @@ if st.session_state.logged_in and st.session_state.auth is not None:
             st.session_state.logged_in = False
             st.session_state.username = ""
             st.session_state.role = ""
+            st.session_state.full_name = None
             st.session_state.auth = None
             st.warning(f"🔒 {me.json().get('detail', 'Your session ended')}. Please log in again.")
     except requests.exceptions.RequestException:
@@ -266,11 +269,13 @@ st.sidebar.title("Navigation")
 st.sidebar.markdown("---")
 
 if st.session_state.logged_in:
-    st.sidebar.success(f"Logged in as **{st.session_state.username}** ({st.session_state.role})")
+    display = st.session_state.full_name or st.session_state.username
+    st.sidebar.success(f"Logged in as **{display}** ({st.session_state.role})")
     if st.sidebar.button("Logout"):
         st.session_state.logged_in = False
         st.session_state.username = ""
         st.session_state.role = ""
+        st.session_state.full_name = None
         st.session_state.auth = None
         st.rerun()
 else:
@@ -284,6 +289,7 @@ else:
                 st.session_state.logged_in = True
                 st.session_state.username = login_username
                 st.session_state.role = data["role"]
+                st.session_state.full_name = data.get("full_name")
                 st.session_state.auth = BearerAuth(data["access_token"])
                 st.sidebar.success("Logged in successfully!")
                 st.rerun()
@@ -296,9 +302,10 @@ else:
     st.sidebar.caption("Doctor accounts are created by an administrator.")
     signup_username = st.sidebar.text_input("New Username", key="signup_username")
     signup_password = st.sidebar.text_input("New Password (min 6 chars)", type="password", key="signup_password")
+    signup_full_name = st.sidebar.text_input("Full name (optional, shown to your doctor)", key="signup_full_name")
     if st.sidebar.button("Signup"):
         if signup_username and signup_password:
-            status_code, data = signup_user(signup_username, signup_password)
+            status_code, data = signup_user(signup_username, signup_password, signup_full_name or None)
             if status_code == 200:
                 st.sidebar.success("Patient account created! You can now log in.")
             else:
@@ -551,12 +558,13 @@ else:
         with st.form("create_user_form"):
             new_username = st.text_input("Username")
             new_password = st.text_input("Password (min 6 chars)", type="password")
+            new_full_name = st.text_input("Full name (optional)")
             new_role = st.selectbox("Role", ["doctor", "patient", "admin"])
             create_submitted = st.form_submit_button("Create User")
             if create_submitted:
                 if new_username and new_password:
                     status_code, data = admin_create_user(
-                        st.session_state.auth, new_username, new_password, new_role
+                        st.session_state.auth, new_username, new_password, new_role, new_full_name or None
                     )
                     if status_code == 200:
                         st.success(data.get("message", "User created."))

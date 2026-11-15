@@ -23,6 +23,11 @@ def basic_auth_allowed() -> bool:
     return os.getenv("ALLOW_BASIC_AUTH", "false").strip().lower() in ("1", "true", "yes")
 
 
+def _public(user) -> dict:
+    """The user fields other code may see (never the password hash)."""
+    return {"username": user["username"], "role": user["role"], "full_name": user.get("full_name")}
+
+
 def _unauthorized(detail: str):
     return HTTPException(status_code=401, detail=detail, headers={"WWW-Authenticate": "Bearer"})
 
@@ -54,11 +59,11 @@ def authenticate(
         user = users_collection.find_one({"username": payload["sub"]})
         if not user:
             raise _unauthorized("Account no longer exists")
-        return {"username": user["username"], "role": user["role"]}
+        return _public(user)
 
     if basic is not None and basic_auth_allowed():
         user = _check_password(basic.username, basic.password)
-        return {"username": user["username"], "role": user["role"]}
+        return _public(user)
 
     raise _unauthorized("Not authenticated")
 
@@ -74,6 +79,7 @@ def issue_token(form: OAuth2PasswordRequestForm = Depends()):
         "expires_in": expire_minutes() * 60,
         "username": user["username"],
         "role": user["role"],
+        "full_name": user.get("full_name"),
     }
 
 
@@ -88,12 +94,13 @@ def require_admin(user=Depends(authenticate)):
     return user
 
 
-def _create_user(username: str, password: str, role: str):
+def _create_user(username: str, password: str, role: str, full_name=None):
     try:
         users_collection.insert_one({
             "username": username,
             "password": hash_password(password),
             "role": role,
+            "full_name": full_name,
         })
     except DuplicateKeyError:
         raise HTTPException(status_code=400, detail="User already exists")
@@ -104,7 +111,7 @@ def signup(req: SignupRequest):
     """Public signup always creates a PATIENT. Doctors/admins are created by an admin."""
     if users_collection.find_one({"username": req.username}):
         raise HTTPException(status_code=400, detail="User already exists")
-    _create_user(req.username, req.password, "patient")
+    _create_user(req.username, req.password, "patient", req.full_name)
     log_event(req.username, "patient", "signup")
     return {"message": "Patient account created successfully"}
 
@@ -112,7 +119,7 @@ def signup(req: SignupRequest):
 @router.get("/login")
 def login(user=Depends(authenticate)):
     log_event(user["username"], user["role"], "login")
-    return {"username": user["username"], "role": user["role"]}
+    return user
 
 
 @router.post("/users")
@@ -120,7 +127,7 @@ def create_user(req: CreateUserRequest, admin=Depends(require_admin)):
     """Admin-only: create a user with any role (e.g. onboard a doctor)."""
     if users_collection.find_one({"username": req.username}):
         raise HTTPException(status_code=400, detail="User already exists")
-    _create_user(req.username, req.password, req.role)
+    _create_user(req.username, req.password, req.role, req.full_name)
     log_event(admin["username"], "admin", "user_created", req.username, new_role=req.role)
     return {"message": f"{req.role.capitalize()} '{req.username}' created successfully"}
 
@@ -128,7 +135,7 @@ def create_user(req: CreateUserRequest, admin=Depends(require_admin)):
 @router.get("/users")
 def list_users(admin=Depends(require_admin)):
     """Admin-only: list users (never returns password hashes)."""
-    return list(users_collection.find({}, {"_id": 0, "username": 1, "role": 1}).sort("username", 1))
+    return list(users_collection.find({}, {"_id": 0, "username": 1, "role": 1, "full_name": 1}).sort("username", 1))
 
 
 def ensure_admin():
