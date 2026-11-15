@@ -2,91 +2,113 @@ import os
 import time
 import asyncio
 from pathlib import Path
-from dotenv import load_dotenv
-from tqdm.auto import tqdm
-from pinecone import Pinecone, ServerlessSpec
-from langchain_community.document_loaders import PyPDFLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from sentence_transformers import SentenceTransformer
-from ..config.db import reports_collection
 from typing import List
-from fastapi import UploadFile
-load_dotenv() 
 
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
-PINECONE_ENV = os.getenv("PINECONE_ENV", "us-east-1")
-PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "rbac-diagnosis-index")
-UPLOAD_DIR = os.getenv("UPLOAD_DIR", "./uploaded_reports")
+from dotenv import load_dotenv
+from fastapi import UploadFile, HTTPException
+from langchain_community.document_loaders import PyPDFLoader, TextLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
+from ..config.db import reports_collection
+from ..config.embeddings import get_embed_model
+from ..config.vectordb import index
+
+load_dotenv()
+
+UPLOAD_DIR = os.getenv("UPLOAD_DIR", "./uploaded_dir")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+# File type -> LangChain loader. Each loader returns a list of Documents.
+LOADERS = {
+    ".pdf": lambda path: PyPDFLoader(path),
+    ".txt": lambda path: TextLoader(path, encoding="utf-8"),
+}
 
-pc=Pinecone(api_key=PINECONE_API_KEY)
-spec=ServerlessSpec(cloud="aws",region=PINECONE_ENV)
-existing_indexes=[i["name"] for i in pc.list_indexes()]
+UPSERT_BATCH_SIZE = 100  # stay well under Pinecone's per-request size limit
 
-if PINECONE_INDEX_NAME not in existing_indexes:
-    pc.create_index(name=PINECONE_INDEX_NAME,dimension=384,metric="dotproduct",spec=spec)
-    while not pc.describe_index(PINECONE_INDEX_NAME).status["ready"]:
-        time.sleep(1)
-
-index=pc.Index(PINECONE_INDEX_NAME)
+splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
 
 
-async def load_vectorstore(uploaded_files:List[UploadFile],uploaded:str,doc_id:str):
+async def load_vectorstore(uploaded_files: List[UploadFile], uploaded: str, doc_id: str) -> int:
     """
-        Save files, chunk texts, embed texts, upsert in Pinecone and write metadata to Mongo
+    Save every uploaded file, chunk its text, embed the chunks, upsert them into
+    Pinecone (vector + original text as metadata) and record the report in MongoDB.
+    Returns the number of chunks indexed.
     """
+    # Validate all file types first so we never save half of a bad upload.
+    for file in uploaded_files:
+        ext = Path(file.filename).suffix.lower()
+        if ext not in LOADERS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file type '{ext}' for {file.filename}. Allowed: PDF, TXT.",
+            )
 
-    embed_model = SentenceTransformer("all-MiniLM-L6-v2")
-
+    all_chunks = []
+    filenames = []
 
     for file in uploaded_files:
-        filename=Path(file.filename).name
-        save_path=Path(UPLOAD_DIR)/ f"{doc_id}_{filename}"
-        content=await file.read()
-        with open(save_path,"wb") as f:
+        filename = Path(file.filename).name
+        ext = Path(filename).suffix.lower()
+
+        # 1) Save the raw file to disk
+        save_path = Path(UPLOAD_DIR) / f"{doc_id}_{filename}"
+        content = await file.read()
+        with open(save_path, "wb") as f:
             f.write(content)
 
-    
-    loader=PyPDFLoader(str(save_path))
-    documents=loader.load()
-    splitter=RecursiveCharacterTextSplitter(chunk_size=1000,chunk_overlap=100)
-    chunks= splitter.split_documents(documents)
+        # 2) Load -> 3) split, for EVERY file (previously only the last file was indexed)
+        loader = LOADERS[ext](str(save_path))
+        documents = await asyncio.to_thread(loader.load)
+        chunks = splitter.split_documents(documents)
+        for chunk in chunks:
+            chunk.metadata["source"] = filename
+        all_chunks.extend(chunks)
+        filenames.append(filename)
 
-    texts=[chunk.page_content for chunk in chunks]
-    ids=[f"{doc_id}-{i}" for i in range(len(chunks))]
-    metadatas=[
-            {
-                "source": filename,
-                "doc_id": doc_id,
-                "uploader": uploaded,
-                "page": chunk.metadata.get("page", None),
-                "text": chunk.page_content[:2000] 
-            }
-            for chunk in chunks
-    ]
+    if not all_chunks:
+        raise HTTPException(
+            status_code=400,
+            detail="No readable text found in the uploaded files (scanned PDFs need OCR).",
+        )
 
-    
-    embeddings = await asyncio.to_thread(
-    lambda: embed_model.encode(texts).tolist()
-)
+    texts = [chunk.page_content for chunk in all_chunks]
+    ids = [f"{doc_id}-{i}" for i in range(len(all_chunks))]
 
-    
+    metadatas = []
+    for chunk in all_chunks:
+        md = {
+            "source": chunk.metadata["source"],
+            "doc_id": doc_id,
+            "uploader": uploaded,
+            "text": chunk.page_content[:2000],  # original text, read back at query time
+        }
+        page = chunk.metadata.get("page")
+        if page is not None:  # Pinecone rejects null metadata; TXT files have no pages
+            md["page"] = int(page) + 1  # PyPDFLoader pages are 0-based; store human page numbers
+        metadatas.append(md)
+
+    # 4) Embed with the shared model (loaded once per process)
+    embed_model = get_embed_model()
+    embeddings = await asyncio.to_thread(lambda: embed_model.encode(texts).tolist())
+
+    # 5) Upsert in batches
+    vectors = list(zip(ids, embeddings, metadatas))
+
     def upsert():
-        index.upsert(vectors=list(zip(ids,embeddings,metadatas)))
-
+        for start in range(0, len(vectors), UPSERT_BATCH_SIZE):
+            index.upsert(vectors=vectors[start:start + UPSERT_BATCH_SIZE])
 
     await asyncio.to_thread(upsert)
 
-    
+    # 6) Report metadata in MongoDB (ownership is checked against "uploader")
     reports_collection.insert_one({
-                "doc_id": doc_id,
-                "filename":filename,
-                "uploader": uploaded,
-                "num_chunks":len(chunks),
-                "uploaded_at":time.time()
-                
+        "doc_id": doc_id,
+        "filename": ", ".join(filenames),
+        "filenames": filenames,
+        "uploader": uploaded,
+        "num_chunks": len(all_chunks),
+        "uploaded_at": time.time(),
     })
+
+    return len(all_chunks)
