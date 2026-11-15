@@ -2,13 +2,9 @@ import asyncio
 
 from langchain_core.prompts import PromptTemplate
 
-from ..config.embeddings import get_embed_model
-from ..config.llm import get_llm, get_model_label
-from ..config.vectordb import index
+from ..config import embeddings, llm, vectordb
 
 TOP_K = 5
-
-llm = get_llm()  # Groq or Gemini, chosen by LLM_PROVIDER in .env
 
 prompt = PromptTemplate.from_template(
     """
@@ -26,7 +22,9 @@ User question:
 {question}
 """)
 
-rag_chain = prompt | llm
+def get_rag_chain():
+    """Build prompt | llm on demand (the LLM is created once and cached in config.llm)."""
+    return prompt | llm.get_llm()  # Groq or Gemini, chosen by LLM_PROVIDER in .env
 
 
 def _source_label(md: dict) -> str:
@@ -37,8 +35,9 @@ def _source_label(md: dict) -> str:
 
 async def diagnosis_report(user: str, doc_id: str, question: str) -> dict:
     # 1) Embed the question with the SAME model used at indexing time
-    embed_model = get_embed_model()
+    embed_model = embeddings.get_embed_model()
     embedding = await asyncio.to_thread(lambda: embed_model.encode(question).tolist())
+    index = vectordb.get_index()
 
     # 2) Search ONLY this report's chunks. The filter runs inside Pinecone, so the
     #    top-k is chosen from this doc_id (previously top-k was taken from the whole
@@ -73,6 +72,6 @@ async def diagnosis_report(user: str, doc_id: str, question: str) -> dict:
 
     # 4) Send the retrieved text (with source labels) + question to the LLM
     context_text = "\n\n".join(contexts)
-    final = await asyncio.to_thread(rag_chain.invoke, {"context": context_text, "question": question})
+    final = await asyncio.to_thread(get_rag_chain().invoke, {"context": context_text, "question": question})
 
-    return {"diagnosis": final.content, "sources": sources, "model": get_model_label(), "message": "ok"}
+    return {"diagnosis": final.content, "sources": sources, "model": llm.get_model_label(), "message": "ok"}
