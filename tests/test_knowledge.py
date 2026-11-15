@@ -55,6 +55,7 @@ def test_diagnosis_prompt_and_response_include_knowledge(client, signup, upload,
     body = client.post("/diagnosis/from_report", auth=alice, data={"doc_id": doc_id, "question": "q"}).json()
 
     assert "Reference medical knowledge:" in captured["prompt"]
-    assert captured["prompt"].count("] (source: ") == 3  # one per knowledge entry
-    assert len(body["knowledge_sources"]) == 3
+    # 3 semantic matches plus the top differential conditions (always included)
+    assert captured["prompt"].count("] (source: ") == len(body["knowledge_sources"]) >= 3
+    assert len({ref["name"] for ref in body["knowledge_sources"]}) == len(body["knowledge_sources"])
     assert all(ref["url"].startswith("https://") for ref in body["knowledge_sources"])

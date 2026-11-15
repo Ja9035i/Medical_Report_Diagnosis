@@ -3,6 +3,7 @@ import asyncio
 from langchain_core.prompts import PromptTemplate
 
 from ..config import llm
+from ..knowledge.differential import format_differential, rank_differential
 from ..knowledge.kb import format_knowledge, knowledge_sources, search_kb
 from ..labs.extract import abnormal
 from .retrieval import hybrid_retrieve
@@ -15,8 +16,10 @@ prompt = PromptTemplate.from_template(
 You are a medical assistant. Using ONLY the patient's report context, the rule-checked lab values
 and the reference medical knowledge below, produce:
 1) A concise probable diagnosis (1-2 lines)
-2) Key findings from the report (bullet points), citing the source in brackets, e.g. [report1.pdf, page 2]
-3) Recommended next steps (tests/treatments) — label clearly as suggestions, not medical advice.
+2) Differential diagnosis: briefly explain the ranked list below — why the top condition fits best and
+   what would distinguish it from the others. If the report text clearly contradicts the ranking, say so.
+3) Key findings from the report (bullet points), citing the source in brackets, e.g. [report1.pdf, page 2]
+4) Recommended next steps (tests/treatments) — label clearly as suggestions, not medical advice.
 
 The lab flags below were computed by deterministic rules from the report's numbers.
 Treat them as correct; do not re-judge whether a value is high or low.
@@ -27,6 +30,9 @@ If the context does not contain enough information to answer, say so instead of 
 
 Rule-checked abnormal lab values:
 {lab_flags}
+
+Ranked differential diagnosis (computed by rules from the lab pattern):
+{differential}
 
 Reference medical knowledge:
 {knowledge}
@@ -90,8 +96,11 @@ async def diagnosis_report(user: str, doc_id: str, question: str, labs=None, chu
     # 4) Second knowledge source: general medical knowledge relevant to the
     #    question and the abnormal labs (dual-source RAG)
     abnormal_labs = abnormal(labs or [])
+    differential = rank_differential(labs or [])
     kb_query = " ".join([question] + [f"{lab['test']} {lab['flag'].lower()}" for lab in abnormal_labs])
-    kb_entries = await asyncio.to_thread(search_kb, kb_query, KB_K)
+    kb_entries = await asyncio.to_thread(
+        search_kb, kb_query, KB_K, [d["id"] for d in differential[:3]],  # top differential always included
+    )
 
     # 5) Send report context, rule-checked lab flags, knowledge and question to the LLM
     context_text = "\n\n".join(contexts)
@@ -101,6 +110,7 @@ async def diagnosis_report(user: str, doc_id: str, question: str, labs=None, chu
             "context": context_text,
             "question": question,
             "lab_flags": format_lab_flags(labs),
+            "differential": format_differential(differential),
             "knowledge": format_knowledge(kb_entries),
         },
     )
@@ -108,6 +118,7 @@ async def diagnosis_report(user: str, doc_id: str, question: str, labs=None, chu
     return {
         "diagnosis": final.content,
         "sources": sources,
+        "differential": differential,
         "knowledge_sources": knowledge_sources(kb_entries),
         "abnormal_labs": abnormal_labs,
         "model": llm.get_model_label(),
