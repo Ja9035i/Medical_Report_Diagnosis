@@ -72,3 +72,12 @@ def test_format_lab_flags():
         "- CRP 12 mg/L — HIGH (ref ≤ 5, report range)",
     ]
     assert format_lab_flags([]) == "None detected."
+
+
+def test_message_text_handles_string_and_gemini_parts():
+    from langchain_core.messages import AIMessage
+    from server.config.llm import message_text
+    assert message_text(AIMessage(content="plain")) == "plain"
+    gemini_style = AIMessage(content=[{"type": "text", "text": "Iron "}, {"type": "thinking", "thinking": "x"},
+                                      {"type": "text", "text": "deficiency"}])
+    assert message_text(gemini_style) == "Iron deficiency"

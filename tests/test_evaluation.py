@@ -60,3 +60,18 @@ def test_report_is_written(tmp_path):
     text = path.read_text(encoding="utf-8")
     assert "| red_flag_recall | 1.0 |" in text
     assert path.with_suffix(".json").exists()
+
+
+def test_fair_comparison_uses_only_common_successful_cases():
+    groq = ({"provider": "groq", "model": "g"}, [
+        {"id": "a", "named_condition": True, "grounded": True, "attempts": 1, "latency_s": 2.0, "error": None},
+        {"id": "b", "named_condition": True, "grounded": False, "attempts": 2, "latency_s": 4.0, "error": None},
+    ])
+    gemini = ({"provider": "gemini", "model": "m"}, [
+        {"id": "a", "named_condition": True, "grounded": True, "attempts": 1, "latency_s": 1.0, "error": None},
+        {"id": "b", "named_condition": None, "grounded": None, "attempts": None, "latency_s": 0.5, "error": "429"},
+    ])
+    table = run_eval.compare_on_common_cases([groq, gemini])
+    assert [row["cases"] for row in table] == [1, 1]          # only case "a" is common
+    assert table[0]["grounded"] == "1/1" and table[1]["avg_latency_s"] == 1.0
+    assert run_eval.compare_on_common_cases([groq]) == []

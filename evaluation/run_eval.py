@@ -171,6 +171,25 @@ async def llm_metrics(provider, cases, delay=0.0):
 
 # ---------------- report ----------------
 
+def compare_on_common_cases(llm_runs):
+    """Fair comparison: only cases every provider completed without an error."""
+    if len(llm_runs) < 2:
+        return []
+    common = set.intersection(*[{r["id"] for r in rows if not r["error"]} for _, rows in llm_runs])
+    table = []
+    for summary, rows in llm_runs:
+        subset = [r for r in rows if r["id"] in common]
+        n = len(subset)
+        table.append({
+            "provider": summary["provider"], "model": summary["model"], "cases": n,
+            "condition_named": f"{sum(1 for r in subset if r['named_condition'])}/{sum(1 for r in subset if r['named_condition'] is not None)}",
+            "grounded": f"{sum(1 for r in subset if r['grounded'])}/{sum(1 for r in subset if r['grounded'] is not None)}",
+            "avg_attempts": round(sum(r["attempts"] for r in subset) / n, 2) if n else None,
+            "avg_latency_s": round(sum(r["latency_s"] for r in subset) / n, 2) if n else None,
+        })
+    return table
+
+
 def write_report(det_summary, det_rows, llm_runs, out_dir=RESULTS_DIR):
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -191,6 +210,18 @@ def write_report(det_summary, det_rows, llm_runs, out_dir=RESULTS_DIR):
         for s, _ in llm_runs:
             lines.append(f"| {s['provider']} | {s['model']} | {s['cases_run']} | {s['errors']} | "
                          f"{s['condition_named_rate']} | {s['grounded_rate']} | {s['avg_attempts']} | {s['avg_latency_s']} |")
+    common = compare_on_common_cases(llm_runs)
+    if common:
+        lines += ["", f"### Fair comparison on the {common[0]['cases']} cases every provider completed", "",
+                  "| Provider | Model | Condition named | Grounded | Avg attempts | Avg latency (s) |",
+                  "|---|---|---|---|---|---|"]
+        lines += [f"| {c['provider']} | {c['model']} | {c['condition_named']} | {c['grounded']} | "
+                  f"{c['avg_attempts']} | {c['avg_latency_s']} |" for c in common]
+    errors = [(s["provider"], r["id"], r["error"]) for s, rows in llm_runs for r in rows if r["error"]]
+    if errors:
+        kinds = sorted({e.split(":")[0] for _, _, e in errors})
+        lines += ["", f"_{len(errors)} LLM case(s) failed ({', '.join(kinds)}), e.g. free-tier rate limits; "
+                  "they are excluded from rates and from the fair comparison._"]
     md_path = out_dir / f"eval_{stamp}.md"
     md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     json_path = out_dir / f"eval_{stamp}.json"
@@ -208,7 +239,15 @@ def main(argv=None):
                         help="comma-separated: groq,gemini")
     parser.add_argument("--limit", type=int, default=0, help="only the first N cases for the LLM run")
     parser.add_argument("--delay", type=float, default=0.0, help="seconds between LLM cases (rate limits)")
+    parser.add_argument("--from-json", help="rebuild the Markdown report from a saved JSON run (no API calls)")
     args = parser.parse_args(argv)
+
+    if args.from_json:
+        saved = json.loads(Path(args.from_json).read_text(encoding="utf-8"))
+        runs = [(r["summary"], r["cases"]) for r in saved["llm"]]
+        print("Report written to", write_report(saved["deterministic"]["summary"],
+                                                saved["deterministic"]["cases"], runs))
+        return
 
     det_summary, det_rows = deterministic_metrics()
     print("Deterministic:", json.dumps(det_summary))
