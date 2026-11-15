@@ -5,7 +5,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pymongo.errors import DuplicateKeyError
 
 from .models import SignupRequest, CreateUserRequest
-from .hash_utilis import hash_password, verify_password
+from .hash_utils import hash_password, verify_password
 from ..config.db import users_collection
 
 router = APIRouter(prefix="/auth", tags=["auth"])

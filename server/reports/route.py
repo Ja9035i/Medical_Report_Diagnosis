@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from ..auth.route import authenticate
-from .vectorestores import load_vectorstore
+from .vectorstore import load_vectorstore
 import uuid
 from typing import List
 from ..config.db import reports_collection
