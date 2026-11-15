@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from pymongo.errors import DuplicateKeyError
 
 from ..audit import log_event
-from ..config.db import assignments_collection, users_collection
+from ..config.db import assignments_collection, diagnosis_collection, reports_collection, users_collection
 from .route import authenticate, require_admin
 
 router = APIRouter(prefix="/assignments", tags=["assignments"])
@@ -75,6 +75,43 @@ def list_assignments(user=Depends(authenticate)):
     if user["role"] == "doctor":
         return {"doctor": user["username"], "patients": assigned_patients(user["username"])}
     raise HTTPException(status_code=403, detail="Only admins and doctors can view assignments")
+
+
+@router.get("/my-patients")
+def my_patients(user=Depends(authenticate)):
+    """
+    A doctor's assigned patients with a summary per patient, most urgent first:
+    patients with critical lab alerts, then pending reviews, then latest activity.
+    """
+    if user["role"] != "doctor":
+        raise HTTPException(status_code=403, detail="Only doctors have a patient list")
+
+    rows = []
+    for username in assigned_patients(user["username"]):
+        account = users_collection.find_one({"username": username}, {"full_name": 1}) or {}
+        reports = list(reports_collection.find({"uploader": username},
+                                               {"uploaded_at": 1, "critical_alerts": 1}))
+        pending = diagnosis_collection.count_documents({
+            "requester": username,
+            "$or": [{"review_status": "pending_review"}, {"review_status": {"$exists": False}}],
+        })
+        last_diagnosis = diagnosis_collection.find_one({"requester": username}, {"timestamp": 1},
+                                                       sort=[("timestamp", -1)])
+        rows.append({
+            "username": username,
+            "full_name": account.get("full_name"),
+            "reports": len(reports),
+            "critical_reports": sum(1 for r in reports if r.get("critical_alerts")),
+            "pending_reviews": pending,
+            "latest_upload": max((r["uploaded_at"] for r in reports), default=None),
+            "latest_diagnosis": last_diagnosis["timestamp"] if last_diagnosis else None,
+        })
+
+    def urgency(row):
+        latest = max(row["latest_upload"] or 0, row["latest_diagnosis"] or 0)
+        return (-row["critical_reports"], -row["pending_reviews"], -latest, row["username"])
+
+    return sorted(rows, key=urgency)
 
 
 def ensure_assignment_index():
