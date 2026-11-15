@@ -1,0 +1,153 @@
+Deterministic: {"cases": 30, "lab_precision": 1.0, "lab_recall": 1.0, "lab_f1": 1.0, "red_flag_recall": 1.0, "red_flag_false_alarms": 0, "differential_top1": 1.0, "differential_top3": 1.0}
+LLM run: groq on 30 cases
+
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]
+Loading weights: 100%|██████████| 103/103 [00:00<00:00, 3584.70it/s]
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+  [groq] iron_colon_ranges            named=True grounded=True 64.11s 
+  [groq] iron_table                   named=True grounded=True 3.34s 
+  [groq] b12_ranges                   named=True grounded=True 3.51s 
+  [groq] infection_sample_format      named=True grounded=True 12.64s 
+  [groq] infection_full               named=True grounded=True 21.41s 
+  [groq] diabetes                     named=True grounded=True 16.27s 
+  [groq] prediabetes                  named=True grounded=True 16.28s 
+  [groq] hypothyroid                  named=True grounded=True 16.15s 
+  [groq] hyperthyroid                 named=True grounded=False 38.48s 
+  [groq] dyslipidemia_full            named=True grounded=True 18.66s 
+  [groq] kidney                       named=True grounded=True 16.34s 
+  [groq] kidney_critical_k            named=True grounded=True 21.56s 
+  [groq] liver                        named=True grounded=True 46.52s 
+  [groq] hyponatremia                 named=True grounded=True 15.75s 
+  [groq] hyponatremia_critical        named=True grounded=True 15.95s 
+  [groq] hypokalemia                  named=True grounded=True 16.59s 
+  [groq] thrombocytopenia             named=True grounded=True 14.25s 
+  [groq] thrombocytopenia_critical    named=True grounded=True 15.54s 
+  [groq] vitamin_d                    named=True grounded=True 31.52s 
+  [groq] polycythemia                 named=True grounded=True 19.65s 
+  [groq] hypercalcemia                named=True grounded=True 14.88s 
+  [groq] glucose_critical             named=True grounded=True 48.59s 
+  [groq] iron_critical_hb             named=True grounded=True 23.12s 
+  [groq] normal_panel                 named=None grounded=True 10.75s 
+  [groq] iron_plus_infection          named=True grounded=True 23.65s 
+  [groq] uppercase_ref_keyword        named=True grounded=True 21.25s 
+  [groq] pii_header_thyroid           named=True grounded=False 35.76s 
+  [groq] b12_default_ranges           named=True grounded=True 18.7s 
+  [groq] lipids_partial               named=True grounded=False 33.87s 
+  [groq] liver_mild                   named=True grounded=True 13.45s 
+  summary: {"provider": "groq", "model": "groq:openai/gpt-oss-120b", "cases_run": 30, "errors": 0, "condition_named_rate": 1.0, "grounded_rate": 0.9, "avg_attempts": 1.2, "avg_latency_s": 22.28}
+LLM run: gemini on 30 cases
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+  [gemini] iron_colon_ranges            named=True grounded=True 12.64s 
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+  [gemini] iron_table                   named=True grounded=True 9.71s 
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+  [gemini] b12_ranges                   named=True grounded=True 10.44s 
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+  [gemini] infection_sample_format      named=None grounded=None 2.63s GoogleRateLimitError: Error calling model 'gemini-3.6-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+  [gemini] infection_full               named=None grounded=None 1.94s GoogleRateLimitError: Error calling model 'gemini-3.6-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+  [gemini] diabetes                     named=True grounded=True 11.65s 
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+  [gemini] prediabetes                  named=True grounded=True 9.83s 
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+  [gemini] hypothyroid                  named=True grounded=True 9.08s 
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+  [gemini] hyperthyroid                 named=True grounded=True 10.07s 
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+  [gemini] dyslipidemia_full            named=None grounded=None 1.92s GoogleRateLimitError: Error calling model 'gemini-3.6-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+  [gemini] kidney                       named=True grounded=True 10.13s 
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+  [gemini] kidney_critical_k            named=True grounded=True 10.4s 
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+  [gemini] liver                        named=True grounded=True 11.73s 
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+  [gemini] hyponatremia                 named=None grounded=None 2.09s GoogleRateLimitError: Error calling model 'gemini-3.6-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+  [gemini] hyponatremia_critical        named=None grounded=None 1.62s GoogleRateLimitError: Error calling model 'gemini-3.6-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+  [gemini] hypokalemia                  named=None grounded=None 11.79s GoogleRateLimitError: Error calling model 'gemini-3.6-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+  [gemini] thrombocytopenia             named=None grounded=None 1.83s GoogleRateLimitError: Error calling model 'gemini-3.6-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+  [gemini] thrombocytopenia_critical    named=None grounded=None 1.92s GoogleRateLimitError: Error calling model 'gemini-3.6-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+  [gemini] vitamin_d                    named=None grounded=None 2.2s GoogleRateLimitError: Error calling model 'gemini-3.6-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+  [gemini] polycythemia                 named=None grounded=None 2.31s GoogleRateLimitError: Error calling model 'gemini-3.6-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+  [gemini] hypercalcemia                named=None grounded=None 1.91s GoogleRateLimitError: Error calling model 'gemini-3.6-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+  [gemini] glucose_critical             named=None grounded=None 2.6s GoogleRateLimitError: Error calling model 'gemini-3.6-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+  [gemini] iron_critical_hb             named=None grounded=None 2.49s GoogleRateLimitError: Error calling model 'gemini-3.6-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+  [gemini] normal_panel                 named=None grounded=None 1.72s GoogleRateLimitError: Error calling model 'gemini-3.6-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+  [gemini] iron_plus_infection          named=None grounded=None 2.24s GoogleRateLimitError: Error calling model 'gemini-3.6-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+  [gemini] uppercase_ref_keyword        named=None grounded=None 1.76s GoogleRateLimitError: Error calling model 'gemini-3.6-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+  [gemini] pii_header_thyroid           named=None grounded=None 1.81s GoogleRateLimitError: Error calling model 'gemini-3.6-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+  [gemini] b12_default_ranges           named=None grounded=None 2.13s GoogleRateLimitError: Error calling model 'gemini-3.6-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+  [gemini] lipids_partial               named=None grounded=None 2.5s GoogleRateLimitError: Error calling model 'gemini-3.6-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 
+D:\MedicalReport_diagnosis\.venv\Lib\site-packages\langchain_google_genai\chat_models.py:3940: UserWarning: Model 'gemini-3.6-flash' uses fixed sampling defaults; the sampling parameter(s) temperature will be ignored.
+  request = self._build_request_config(
+  [gemini] liver_mild                   named=None grounded=None 2.39s GoogleRateLimitError: Error calling model 'gemini-3.6-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 
+  summary: {"provider": "gemini", "model": "gemini:gemini-3.6-flash", "cases_run": 30, "errors": 20, "condition_named_rate": 1.0, "grounded_rate": 1.0, "avg_attempts": 1.0, "avg_latency_s": 10.57}
+Report written to D:\MedicalReport_diagnosis\evaluation\results\eval_20261115-194147.md
+EXIT=0
