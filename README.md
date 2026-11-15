@@ -183,7 +183,18 @@ Open **http://localhost:8501**.
 
 ## Testing
 
-The API was verified end-to-end against live MongoDB, Pinecone and Groq with 16 checks, all passing:
+### Automated tests (offline)
+
+30 pytest tests cover auth/RBAC, upload, retrieval isolation, diagnosis, doctor history and My Reports. MongoDB, Pinecone, the embedding model and the LLM are replaced by in-memory fakes, so the suite runs in seconds, needs no API keys and never touches real data.
+
+```bash
+pip install -r requirements-dev.txt
+pytest tests -q
+```
+
+### Live end-to-end check
+
+The API was also verified end-to-end against live MongoDB, Pinecone and Groq with 16 checks, all passing:
 
 | Area | Checks |
 |---|---|
@@ -196,7 +207,8 @@ The API was verified end-to-end against live MongoDB, Pinecone and Groq with 16 
 
 ## Roadmap
 
-- [ ] "My Reports" list so patients can return to earlier reports
+- [x] "My Reports" list so patients can return to earlier reports
+- [x] Automated offline test suite (pytest)
 - [ ] Structured lab-value extraction with rule-based abnormal flags and critical-value alerts
 - [ ] Medical knowledge base (dual-source RAG) and ranked differential diagnosis
 - [ ] Doctor-in-the-loop review, doctor–patient assignment and audit log
