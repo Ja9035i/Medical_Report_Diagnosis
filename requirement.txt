@@ -11,6 +11,7 @@ langchain-google-genai
 pinecone
 python-dotenv
 bcrypt
+PyJWT
 streamlit
 requests
 sentence-transformers

@@ -1,7 +1,18 @@
 import streamlit as st
 import requests
 import json
-from requests.auth import HTTPBasicAuth
+from requests.auth import AuthBase
+
+
+class BearerAuth(AuthBase):
+    """Attach the JWT to every request; the password is only sent once, at login."""
+
+    def __init__(self, token):
+        self.token = token
+
+    def __call__(self, request):
+        request.headers["Authorization"] = f"Bearer {self.token}"
+        return request
 import datetime
 from dotenv import load_dotenv
 import os
@@ -46,9 +57,10 @@ def signup_user(username, password):
 # 2. Authenticate Function
 def authenticate_user(username, password):
     try:
-        response = requests.get(
-            f"{API_URL}/auth/login",
-            auth=HTTPBasicAuth(username, password)
+        # Password goes to the server once; we get back a short-lived signed token
+        response = requests.post(
+            f"{API_URL}/auth/token",
+            data={"username": username, "password": password}
         )
         return response.status_code, response.json()
     except requests.exceptions.ConnectionError:
@@ -236,6 +248,19 @@ def format_error(data):
         return "; ".join(err.get("msg", str(err)) for err in detail)
     return detail
 
+# Session check: an expired or invalid token logs the user out with a clear message
+if st.session_state.logged_in and st.session_state.auth is not None:
+    try:
+        me = requests.get(f"{API_URL}/auth/me", auth=st.session_state.auth, timeout=10)
+        if me.status_code == 401:
+            st.session_state.logged_in = False
+            st.session_state.username = ""
+            st.session_state.role = ""
+            st.session_state.auth = None
+            st.warning(f"🔒 {me.json().get('detail', 'Your session ended')}. Please log in again.")
+    except requests.exceptions.RequestException:
+        pass  # server unreachable: individual calls will show their own errors
+
 # Sidebar and Authentication Flow
 st.sidebar.title("Navigation")
 st.sidebar.markdown("---")
@@ -259,7 +284,7 @@ else:
                 st.session_state.logged_in = True
                 st.session_state.username = login_username
                 st.session_state.role = data["role"]
-                st.session_state.auth = HTTPBasicAuth(login_username, login_password)
+                st.session_state.auth = BearerAuth(data["access_token"])
                 st.sidebar.success("Logged in successfully!")
                 st.rerun()
             else:

@@ -25,6 +25,8 @@ os.environ.update({
     "ADMIN_USERNAME": "admin",
     "ADMIN_PASSWORD": "adminpass123",
     "LLM_PROVIDER": "groq",
+    "ALLOW_BASIC_AUTH": "true",  # most tests log in with Basic; tests/test_jwt.py covers tokens
+    "JWT_SECRET": "test-secret-not-for-production-0123456789abcdef",  # >= 32 bytes for HS256
     "RERANKER_ENABLED": "false",  # no model download in tests; reranking is tested with a fake
     "GROUNDING_CHECK": "false",  # one LLM call per diagnosis by default; tests/test_graph.py enables it
     "UPLOAD_DIR": tempfile.mkdtemp(prefix="test_uploads_"),
