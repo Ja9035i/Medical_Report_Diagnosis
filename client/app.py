@@ -163,6 +163,23 @@ def show_lab_table(labs):
     st.table(rows)
 
 
+def show_differential_table(differential):
+    badge = {"High": "🟥 High", "Medium": "🟧 Medium", "Low": "🟨 Low"}
+    st.table([
+        {
+            "Possible condition": d["name"],
+            "Likelihood": badge.get(d["likelihood"], d["likelihood"]),
+            "Supporting findings": "; ".join(d["supporting"]),
+            "Against": "; ".join(d["against"]) or "—",
+            "Not measured": ", ".join(d["not_measured"]) or "—",
+            "Tests to confirm": "; ".join(d["confirm_tests"]),
+        }
+        for d in differential
+    ])
+    st.caption("Ranking is computed by rules from the lab pattern, not by the AI. "
+               "It is a list of possibilities to discuss with a doctor, not a diagnosis.")
+
+
 def format_error(data):
     """FastAPI returns a string detail, or a list of validation errors (422)."""
     detail = data.get("detail", "Unknown error") if isinstance(data, dict) else data
@@ -289,6 +306,9 @@ else:
                             if data.get("abnormal_labs"):
                                 st.subheader("Abnormal Lab Values (rule-checked)")
                                 show_lab_table(data["abnormal_labs"])
+                            if data.get("differential"):
+                                st.subheader("Differential Diagnosis (ranked by lab pattern)")
+                                show_differential_table(data["differential"])
                             st.success("Diagnosis Generated!")
                             st.write("---")
                             st.subheader("Diagnosis Result")
