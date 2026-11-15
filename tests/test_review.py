@@ -73,3 +73,14 @@ def test_role_restrictions_on_lists(client, signup, upload, admin_auth):
     alice, dr, _ = setup_case(client, signup, upload, admin_auth)
     assert client.get("/diagnosis/mine", auth=dr).status_code == 403
     assert client.get("/diagnosis/pending", auth=alice).status_code == 403
+
+
+def test_legacy_records_without_status_appear_as_pending(client, signup, upload, admin_auth):
+    from server.config import db
+    alice, dr, body = setup_case(client, signup, upload, admin_auth)
+    db.diagnosis_collection.insert_one({"doc_id": "old", "requester": "alice", "question": "old question",
+                                        "answer": "old answer", "sources": [], "timestamp": 1.0})
+    pending = client.get("/diagnosis/pending", auth=dr).json()
+    assert [p["question"] for p in pending] == ["old question", "q"]  # oldest first
+    legacy_id = pending[0]["_id"]
+    assert client.post(f"/diagnosis/{legacy_id}/review", auth=dr, json={"action": "approve"}).status_code == 200
