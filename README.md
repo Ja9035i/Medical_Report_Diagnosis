@@ -30,6 +30,8 @@ An AI system that reads a patient's medical report (PDF or TXT) and generates a 
 - **LangGraph pipeline with grounding check** — a second LLM call verifies that every patient-specific statement is supported by the report; unsupported answers are regenerated once, then flagged (or refused).
 - **Doctor-in-the-loop** — every AI answer starts as a *pending review* draft; the patient's assigned doctor approves, edits or rejects it, and the patient sees a **Doctor-verified** badge. The original AI draft is kept.
 - **Doctor–patient assignment** — admins assign patients to doctors; doctors can only see their own patients' records.
+- **My Patients dashboard** — doctors get a clickable table of their patients (full name, reports, pending reviews, critical alerts, latest activity), most urgent first; selecting a patient opens their reports, lab results and diagnosis history.
+- **Optional full name** — shown to doctors and admins; stored only with the account and never sent to the AI.
 - **Audit log** — signups, logins, failed logins, uploads, lab views, diagnoses, history views, reviews, assignments and deletions are recorded; admins can filter the log.
 - **Right to delete** — patients can permanently delete a report: vectors, raw files, the report record and its diagnosis history.
 - **Privacy by design** — names, patient IDs, dates of birth, phone numbers, emails and addresses are removed **before** text is indexed or sent to an LLM (age and sex are kept).
@@ -125,6 +127,8 @@ The embedding model is only used for **similarity search**. The LLM receives the
 | `POST` | `/diagnosis/{record_id}/review` | Doctor (assigned) | Approve, edit or reject an AI answer |
 | `POST` / `DELETE` | `/assignments` | Admin | Assign / unassign a patient to a doctor |
 | `GET` | `/assignments` | Admin / Doctor | All assignments (admin) or own patients (doctor) |
+| `GET` | `/assignments/my-patients` | Doctor | Assigned patients with summary, most urgent first |
+| `GET` | `/reports/patient/{username}` | Doctor (assigned) | A patient's reports with lab results |
 | `GET` | `/audit` | Admin | Audit log, filterable by user and action |
 | `GET` | `/health` | Public | Health check |
 
@@ -250,7 +254,7 @@ Open **http://localhost:8501**.
 
 ### Automated tests (offline)
 
-138 pytest tests cover JWT login, the evaluation harness, auth/RBAC, doctor–patient assignments, doctor review, the audit log, report deletion, PII redaction, upload, retrieval isolation, hybrid retrieval and reranking, diagnosis, doctor history, My Reports, lab extraction and flagging, critical-value rules, OCR, the knowledge base, the differential diagnosis and every path of the LangGraph grounding loop. MongoDB, Pinecone, the embedding model and the LLM are replaced by in-memory fakes, so the suite runs in seconds, needs no API keys and never touches real data.
+147 pytest tests cover JWT login, full names, the My Patients dashboard, the evaluation harness, auth/RBAC, doctor–patient assignments, doctor review, the audit log, report deletion, PII redaction, upload, retrieval isolation, hybrid retrieval and reranking, diagnosis, doctor history, My Reports, lab extraction and flagging, critical-value rules, OCR, the knowledge base, the differential diagnosis and every path of the LangGraph grounding loop. MongoDB, Pinecone, the embedding model and the LLM are replaced by in-memory fakes, so the suite runs in seconds, needs no API keys and never touches real data.
 
 ```bash
 pip install -r requirements-dev.txt
