@@ -77,7 +77,8 @@ def fake_index():
 @pytest.fixture
 def client(monkeypatch, fake_index):
     # Fresh database for every test
-    for collection in (db.users_collection, db.reports_collection, db.diagnosis_collection):
+    for collection in (db.users_collection, db.reports_collection, db.diagnosis_collection,
+                       db.assignments_collection):
         collection.delete_many({})
     try:
         db.users_collection.drop_indexes()

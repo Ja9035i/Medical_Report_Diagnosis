@@ -2,6 +2,7 @@ import time
 
 from fastapi import APIRouter, Depends, Form, HTTPException
 
+from ..auth.assignments import require_assigned
 from ..auth.route import authenticate
 from ..config.db import reports_collection, diagnosis_collection
 from .query import diagnosis_report
@@ -52,6 +53,7 @@ async def diagnos(
 async def get_patient_diagnosis(patient_name: str, user=Depends(authenticate)):
     if user["role"] != "doctor":
         raise HTTPException(status_code=403, detail="Only doctors can access this endpoint")
+    require_assigned(user, patient_name)  # doctors only see their own patients
 
     # find() returns a cursor, which is always truthy, so materialize it before checking
     records = list(diagnosis_collection.find({"requester": patient_name}).sort("timestamp", -1))

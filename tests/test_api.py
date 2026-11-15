@@ -143,6 +143,7 @@ def test_doctor_sees_history_newest_first(client, signup, upload, admin_auth):
     for q in ("first question", "second question"):
         client.post("/diagnosis/from_report", auth=alice, data={"doc_id": doc_id, "question": q})
     client.post("/auth/users", auth=admin_auth, json={"username": "drkumar", "password": PASSWORD, "role": "doctor"})
+    client.post("/assignments", auth=admin_auth, json={"doctor": "drkumar", "patient": "alice"})
 
     r = client.get("/diagnosis/by_patient_name", auth=("drkumar", PASSWORD), params={"patient_name": "alice"})
     assert r.status_code == 200
@@ -151,10 +152,10 @@ def test_doctor_sees_history_newest_first(client, signup, upload, admin_auth):
     assert records[0]["model"] == "fake:test-model"
 
 
-def test_doctor_unknown_patient_404(client, admin_auth):
+def test_doctor_unassigned_or_unknown_patient_403(client, admin_auth):
     client.post("/auth/users", auth=admin_auth, json={"username": "drkumar", "password": PASSWORD, "role": "doctor"})
     r = client.get("/diagnosis/by_patient_name", auth=("drkumar", PASSWORD), params={"patient_name": "nobody"})
-    assert r.status_code == 404
+    assert r.status_code == 403
 
 
 def test_patient_cannot_read_history(client, signup):
@@ -205,6 +206,7 @@ def test_labs_endpoint_access_rules(client, signup, upload, admin_auth):
     alice, bob = signup("alice"), signup("bobby")
     doc_id = upload(alice, [LABS_TXT]).json()["doc_id"]
     client.post("/auth/users", auth=admin_auth, json={"username": "drkumar", "password": PASSWORD, "role": "doctor"})
+    client.post("/assignments", auth=admin_auth, json={"doctor": "drkumar", "patient": "alice"})
 
     r = client.get(f"/reports/{doc_id}/labs", auth=alice)
     assert r.status_code == 200

@@ -130,6 +130,27 @@ def admin_list_users(auth):
     except requests.exceptions.ConnectionError:
         return 503, {"detail": "Server is unavailable. Please try again later."}
 
+# 8. Assignments: admin sees all; a doctor sees their own patients
+def get_assignments(auth):
+    try:
+        response = requests.get(f"{API_URL}/assignments", auth=auth)
+        return response.status_code, response.json()
+    except requests.exceptions.ConnectionError:
+        return 503, {"detail": "Server is unavailable. Please try again later."}
+
+# 9. Admin: assign / unassign a patient to a doctor
+def admin_set_assignment(auth, doctor, patient, remove=False):
+    try:
+        response = requests.request(
+            "DELETE" if remove else "POST",
+            f"{API_URL}/assignments",
+            auth=auth,
+            json={"doctor": doctor, "patient": patient},
+        )
+        return response.status_code, response.json()
+    except requests.exceptions.ConnectionError:
+        return 503, {"detail": "Server is unavailable. Please try again later."}
+
 
 def show_critical_banner(alerts):
     """Red URGENT banner for rule-detected critical values (shown before any AI text)."""
@@ -342,9 +363,13 @@ else:
         st.markdown("---")
 
         st.subheader("View Patient Diagnosis History")
+        status_code, mine = get_assignments(st.session_state.auth)
+        my_patients = mine.get("patients", []) if status_code == 200 else []
+        if not my_patients:
+            st.info("No patients are assigned to you yet. Ask an administrator to assign patients.")
         with st.form("doctor_form"):
-            patient_name_input = st.text_input("Enter Patient's Username:")
-            view_submitted = st.form_submit_button("View Diagnosis Records")
+            patient_name_input = st.selectbox("Your patients", my_patients) if my_patients else None
+            view_submitted = st.form_submit_button("View Diagnosis Records", disabled=not my_patients)
             if view_submitted:
                 with st.spinner(f"Fetching diagnosis records for {patient_name_input}..."):
                     status_code, data = get_doctor_diagnosis(st.session_state.auth, patient_name_input)
@@ -395,6 +420,39 @@ else:
                         st.error(f"Create user failed: {format_error(data)}")
                 else:
                     st.warning("Please fill in all fields.")
+
+        st.markdown("---")
+        st.subheader("Doctor–Patient Assignments")
+        st.caption("Doctors can only see the records of patients assigned to them.")
+        users_status, users = admin_list_users(st.session_state.auth)
+        users = users if users_status == 200 else []
+        doctors = [u["username"] for u in users if u["role"] == "doctor"]
+        patients = [u["username"] for u in users if u["role"] == "patient"]
+        if doctors and patients:
+            with st.form("assignment_form"):
+                col1, col2 = st.columns(2)
+                chosen_doctor = col1.selectbox("Doctor", doctors)
+                chosen_patient = col2.selectbox("Patient", patients)
+                col_a, col_b = st.columns(2)
+                do_assign = col_a.form_submit_button("Assign")
+                do_unassign = col_b.form_submit_button("Unassign")
+                if do_assign or do_unassign:
+                    status_code, data = admin_set_assignment(
+                        st.session_state.auth, chosen_doctor, chosen_patient, remove=do_unassign
+                    )
+                    if status_code == 200:
+                        st.success(data.get("message", "Done."))
+                    else:
+                        st.error(format_error(data))
+        else:
+            st.info("Create at least one doctor and one patient to make assignments.")
+        status_code, assignments = get_assignments(st.session_state.auth)
+        if status_code == 200 and assignments:
+            st.table([
+                {"Doctor": a["doctor"], "Patient": a["patient"],
+                 "Since": datetime.datetime.fromtimestamp(a["assigned_at"]).strftime("%Y-%m-%d %H:%M")}
+                for a in assignments
+            ])
 
         st.markdown("---")
         st.subheader("All Users")
