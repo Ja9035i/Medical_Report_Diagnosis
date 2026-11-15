@@ -24,6 +24,10 @@ An AI system that reads a patient's medical report (PDF or TXT) and generates a 
 - **Critical-value alerts** — hard-coded red-flag rules (e.g. potassium > 6.5 mmol/L) trigger an **URGENT** banner shown before any AI text.
 - **Scanned reports & photos** — pages without a text layer are read with OCR (RapidOCR); PNG/JPG uploads supported.
 - **My Reports** — patients can reopen any earlier upload.
+- **Hybrid retrieval** — vector search (Pinecone) and keyword search (BM25) merged with Reciprocal Rank Fusion, then reordered by a cross-encoder reranker; a stuck model download never blocks a diagnosis.
+- **Medical knowledge base (dual-source RAG)** — 16 curated conditions with lab patterns, summaries, confirmatory tests and MedlinePlus references, kept separate from patient facts and cited as `[KB: name]`.
+- **Ranked differential diagnosis** — every condition is scored by rules from the lab pattern (supporting vs contradicting vs not-measured values) into High / Medium / Low likelihood; the LLM explains the ranking.
+- **LangGraph pipeline with grounding check** — a second LLM call verifies that every patient-specific statement is supported by the report; unsupported answers are regenerated once, then flagged (or refused).
 
 ---
 
@@ -38,10 +42,13 @@ flowchart LR
     UP --> DISK[(Local disk<br/>raw files)]
     UP --> EMB[MiniLM embeddings]
     EMB --> PC[(Pinecone<br/>vectors + chunk text)]
-    API --> RAG[Diagnosis RAG]
-    RAG --> PC
-    RAG --> LLM[LLM: Groq or Gemini]
-    RAG --> MDB
+    API --> G[LangGraph diagnosis pipeline]
+    G --> R[Hybrid retrieval<br/>vector + BM25 + reranker]
+    R --> PC
+    R --> MDB
+    G --> KB[(Medical knowledge base<br/>+ differential rules)]
+    G --> LLM[LLM: Groq or Gemini<br/>answer + grounding check]
+    G --> MDB
 ```
 
 ### How it works
@@ -57,11 +64,15 @@ PDF/TXT → save to disk → load pages → split into ~1000-char chunks (100 ov
 
 **2. Diagnosis (retrieval + generation)**
 ```
-question → MiniLM embedding → Pinecone query (top-5, filter doc_id = this report)
-         → read the original chunk TEXT from metadata (vectors are never decoded)
-         → prompt = instructions + labelled context + question → LLM
-         → diagnosis + key findings + suggested next steps, with citations
-         → saved to diagnosis history
+LangGraph:  retrieve → analyze → generate → check_grounding → finalize
+
+retrieve         vector search (Pinecone, filter doc_id = this report) + BM25 keyword search
+                 → Reciprocal Rank Fusion → cross-encoder reranker → top-5 chunks (original TEXT)
+analyze          rule-checked abnormal labs → ranked differential → knowledge-base entries
+generate         prompt = instructions + lab flags + differential + knowledge + report context → LLM
+check_grounding  second LLM call: are all patient-specific statements supported by the report?
+                 unsupported → regenerate once with feedback → still unsupported → flag (or refuse)
+finalize         answer + sources + differential + knowledge sources + verdict → diagnosis history
 ```
 
 The embedding model is only used for **similarity search**. The LLM receives the **original text** stored alongside each vector, never the vectors themselves.
@@ -74,7 +85,8 @@ The embedding model is only used for **similarity search**. The LLM receives the
 |---|---|
 | Backend API | FastAPI, Uvicorn |
 | Frontend | Streamlit |
-| RAG / orchestration | LangChain (loaders, text splitter, prompt chaining) |
+| RAG / orchestration | LangChain (text splitter, prompts), **LangGraph** (diagnosis state graph) |
+| Retrieval | Pinecone vectors + BM25 (`rank-bm25`), Reciprocal Rank Fusion, cross-encoder reranker (`ms-marco-MiniLM-L-6-v2`) |
 | Embeddings | `sentence-transformers` — `all-MiniLM-L6-v2` (384-dim) |
 | Vector database | Pinecone (serverless) |
 | LLM | Groq (`openai/gpt-oss-120b`) or Google Gemini (`gemini-2.5-flash`) |
@@ -131,7 +143,13 @@ Interactive docs are available at `http://127.0.0.1:8000/docs` while the server 
 │   │   └── critical.py         # critical-value (red flag) rules
 │   ├── diagnosis/
 │   │   ├── route.py            # diagnosis + doctor history endpoints
-│   │   └── query.py            # retrieval + lab flags + prompt + LLM call
+│   │   ├── graph.py            # LangGraph pipeline + grounding check
+│   │   ├── retrieval.py        # hybrid retrieval (vector + BM25 + RRF + reranker)
+│   │   └── query.py            # prompt, lab-flag formatting, entry point
+│   ├── knowledge/
+│   │   ├── conditions.py       # curated medical knowledge base
+│   │   ├── kb.py               # in-memory semantic search over the knowledge base
+│   │   └── differential.py     # rule-based ranked differential diagnosis
 │   └── models/
 │       └── db_models.py        # Pydantic models for stored records
 ├── tests/                      # offline pytest suite (fakes for all external services)
@@ -177,6 +195,8 @@ Copy `.env.example` to `.env` and fill in your values:
 | `GROQ_API_KEY`, `GROQ_MODEL` | Groq credentials / model |
 | `GOOGLE_API_KEY`, `GEMINI_MODEL` | Gemini credentials / model |
 | `UPLOAD_DIR` | Where uploaded files are saved |
+| `RERANKER_ENABLED`, `RERANKER_TIMEOUT` | Cross-encoder reranker on/off and max wait (seconds) |
+| `GROUNDING_CHECK`, `GROUNDING_MODE` | Grounding check on/off; `warn` (flag) or `refuse` unsupported answers |
 | `ADMIN_USERNAME`, `ADMIN_PASSWORD` | First admin account, created at startup |
 
 Create `client/.env` with:
@@ -205,7 +225,7 @@ Open **http://localhost:8501**.
 
 ### Automated tests (offline)
 
-65 pytest tests cover auth/RBAC, upload, retrieval isolation, diagnosis, doctor history, My Reports, lab extraction and flagging, critical-value rules and OCR. MongoDB, Pinecone, the embedding model and the LLM are replaced by in-memory fakes, so the suite runs in seconds, needs no API keys and never touches real data.
+99 pytest tests cover auth/RBAC, upload, retrieval isolation, hybrid retrieval and reranking, diagnosis, doctor history, My Reports, lab extraction and flagging, critical-value rules, OCR, the knowledge base, the differential diagnosis and every path of the LangGraph grounding loop. MongoDB, Pinecone, the embedding model and the LLM are replaced by in-memory fakes, so the suite runs in seconds, needs no API keys and never touches real data.
 
 ```bash
 pip install -r requirements-dev.txt
@@ -231,7 +251,9 @@ The API was also verified end-to-end against live MongoDB, Pinecone and Groq wit
 - [x] Automated offline test suite (pytest)
 - [x] Structured lab-value extraction with rule-based abnormal flags and critical-value alerts
 - [x] OCR for scanned reports and photos
-- [ ] Medical knowledge base (dual-source RAG) and ranked differential diagnosis
+- [x] Medical knowledge base (dual-source RAG) and ranked differential diagnosis
+- [x] Hybrid retrieval (vector + BM25) with cross-encoder reranking
+- [x] LangGraph pipeline with grounding check
 - [ ] Doctor-in-the-loop review, doctor–patient assignment and audit log
 - [ ] RAG evaluation (RAGAS) and Groq vs Gemini comparison on a test set
 - [ ] JWT authentication, Docker and cloud deployment
