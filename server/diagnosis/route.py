@@ -42,6 +42,7 @@ async def diagnos(
         "answer": res["diagnosis"],
         "sources": res["sources"],
         "model": res.get("model"),  # which LLM produced this answer (for comparison/audit)
+        "grounded": res.get("grounded"),  # verdict of the grounding check (None if disabled)
         "timestamp": time.time(),
     })
     return res

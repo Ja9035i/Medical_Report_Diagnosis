@@ -1,12 +1,8 @@
-import asyncio
 
 from langchain_core.prompts import PromptTemplate
 
 from ..config import llm
-from ..knowledge.differential import format_differential, rank_differential
-from ..knowledge.kb import format_knowledge, knowledge_sources, search_kb
 from ..labs.extract import abnormal
-from .retrieval import hybrid_retrieve
 
 TOP_K = 5
 KB_K = 3
@@ -18,7 +14,7 @@ and the reference medical knowledge below, produce:
 1) A concise probable diagnosis (1-2 lines)
 2) Differential diagnosis: briefly explain the ranked list below — why the top condition fits best and
    what would distinguish it from the others. If the report text clearly contradicts the ranking, say so.
-3) Key findings from the report (bullet points), citing the source in brackets, e.g. [report1.pdf, page 2]
+3) Key findings from the report (bullet points), citing the source label exactly as it appears in the context, e.g. [report1.pdf (page 2)] or [notes.txt]
 4) Recommended next steps (tests/treatments) — label clearly as suggestions, not medical advice.
 
 The lab flags below were computed by deterministic rules from the report's numbers.
@@ -39,7 +35,7 @@ Reference medical knowledge:
 
 Patient report context:
 {context}
-
+{feedback}
 User question:
 {question}
 """)
@@ -74,53 +70,6 @@ def _source_label(md: dict) -> str:
 
 
 async def diagnosis_report(user: str, doc_id: str, question: str, labs=None, chunks=None) -> dict:
-    # 1-3) Hybrid retrieval over ONLY this report: vector + BM25, fused, reranked.
-    #      Results carry the ORIGINAL chunk text (vectors are never decoded).
-    retrieved = await hybrid_retrieve(question, doc_id, chunks=chunks, final_k=TOP_K)
-
-    contexts = []
-    sources = []
-    for chunk in retrieved:
-        label = _source_label(chunk)
-        contexts.append(f"[{label}]\n{chunk['text']}")
-        if label not in sources:
-            sources.append(label)
-
-    if not contexts:
-        return {
-            "diagnosis": None,
-            "sources": [],
-            "message": "No indexed content was found for this report. Please re-upload it.",
-        }
-
-    # 4) Second knowledge source: general medical knowledge relevant to the
-    #    question and the abnormal labs (dual-source RAG)
-    abnormal_labs = abnormal(labs or [])
-    differential = rank_differential(labs or [])
-    kb_query = " ".join([question] + [f"{lab['test']} {lab['flag'].lower()}" for lab in abnormal_labs])
-    kb_entries = await asyncio.to_thread(
-        search_kb, kb_query, KB_K, [d["id"] for d in differential[:3]],  # top differential always included
-    )
-
-    # 5) Send report context, rule-checked lab flags, knowledge and question to the LLM
-    context_text = "\n\n".join(contexts)
-    final = await asyncio.to_thread(
-        get_rag_chain().invoke,
-        {
-            "context": context_text,
-            "question": question,
-            "lab_flags": format_lab_flags(labs),
-            "differential": format_differential(differential),
-            "knowledge": format_knowledge(kb_entries),
-        },
-    )
-
-    return {
-        "diagnosis": final.content,
-        "sources": sources,
-        "differential": differential,
-        "knowledge_sources": knowledge_sources(kb_entries),
-        "abnormal_labs": abnormal_labs,
-        "model": llm.get_model_label(),
-        "message": "ok",
-    }
+    """Run the LangGraph pipeline: retrieve -> analyze -> generate -> check_grounding -> finalize."""
+    from .graph import run_diagnosis_graph
+    return await run_diagnosis_graph(question, doc_id, labs=labs, chunks=chunks)

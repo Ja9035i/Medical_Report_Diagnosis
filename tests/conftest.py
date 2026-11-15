@@ -26,6 +26,7 @@ os.environ.update({
     "ADMIN_PASSWORD": "adminpass123",
     "LLM_PROVIDER": "groq",
     "RERANKER_ENABLED": "false",  # no model download in tests; reranking is tested with a fake
+    "GROUNDING_CHECK": "false",  # one LLM call per diagnosis by default; tests/test_graph.py enables it
     "UPLOAD_DIR": tempfile.mkdtemp(prefix="test_uploads_"),
 })
 
