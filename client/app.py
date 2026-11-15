@@ -32,12 +32,12 @@ if "auth" not in st.session_state:
 
 # API Functions :
 
-# 1. Signup Function
-def signup_user(username, password, role):
+# 1. Signup Function (public signup always creates a patient account)
+def signup_user(username, password):
     try:
         response = requests.post(
             f"{API_URL}/auth/signup",
-            json={"username": username, "password": password, "role": role}
+            json={"username": username, "password": password}
         )
         return response.status_code, response.json()
     except requests.exceptions.ConnectionError:
@@ -96,8 +96,36 @@ def get_doctor_diagnosis(auth, patient_name):
         return response.status_code, response.json()
     except requests.exceptions.ConnectionError:
         return 503, {"detail": "Server is unavailable. Please try again later."}
-    
-# Sidebar and Authentication Flow 
+
+# 6. Admin: create a user with a role (e.g. doctor)
+def admin_create_user(auth, username, password, role):
+    try:
+        response = requests.post(
+            f"{API_URL}/auth/users",
+            auth=auth,
+            json={"username": username, "password": password, "role": role}
+        )
+        return response.status_code, response.json()
+    except requests.exceptions.ConnectionError:
+        return 503, {"detail": "Server is unavailable. Please try again later."}
+
+# 7. Admin: list users
+def admin_list_users(auth):
+    try:
+        response = requests.get(f"{API_URL}/auth/users", auth=auth)
+        return response.status_code, response.json()
+    except requests.exceptions.ConnectionError:
+        return 503, {"detail": "Server is unavailable. Please try again later."}
+
+
+def format_error(data):
+    """FastAPI returns a string detail, or a list of validation errors (422)."""
+    detail = data.get("detail", "Unknown error") if isinstance(data, dict) else data
+    if isinstance(detail, list):
+        return "; ".join(err.get("msg", str(err)) for err in detail)
+    return detail
+
+# Sidebar and Authentication Flow
 st.sidebar.title("Navigation")
 st.sidebar.markdown("---")
 
@@ -128,19 +156,17 @@ else:
         else:
             st.sidebar.warning("Please enter a username and password.")
 
-    st.sidebar.header("Signup")
+    st.sidebar.header("Patient Signup")
+    st.sidebar.caption("Doctor accounts are created by an administrator.")
     signup_username = st.sidebar.text_input("New Username", key="signup_username")
-    signup_password = st.sidebar.text_input("New Password", type="password", key="signup_password")
-    signup_role = st.sidebar.selectbox("Role", ["patient", "doctor"], key="signup_role")
+    signup_password = st.sidebar.text_input("New Password (min 6 chars)", type="password", key="signup_password")
     if st.sidebar.button("Signup"):
         if signup_username and signup_password:
-            status_code, data = signup_user(signup_username, signup_password, signup_role)
+            status_code, data = signup_user(signup_username, signup_password)
             if status_code == 200:
-                st.sidebar.success("User created successfully! You can now log in.")
-            elif status_code == 400:
-                st.sidebar.error(f"Signup failed: {data.get('detail', 'User already exists')}")
+                st.sidebar.success("Patient account created! You can now log in.")
             else:
-                st.sidebar.error(f"Signup failed: {data.get('detail', 'Unknown error')}")
+                st.sidebar.error(f"Signup failed: {format_error(data)}")
         else:
             st.sidebar.warning("Please fill in all fields.")
 
@@ -169,10 +195,13 @@ else:
                 with st.spinner("Uploading and processing reports..."):
                     status_code, data = upload_report(st.session_state.auth, uploaded_files)
                     if status_code == 200:
-                        st.success(f"Reports uploaded successfully! Your Document ID is: `{data['doc_id']}`")
+                        st.success(
+                            f"Reports uploaded and indexed ({data.get('num_chunks', '?')} chunks). "
+                            f"Your Document ID is: `{data['doc_id']}`"
+                        )
                         st.session_state.doc_id = data['doc_id'] # Store doc_id for later use
                     else:
-                        st.error(f"Upload failed: {data.get('detail', 'Unknown error')}")
+                        st.error(f"Upload failed: {format_error(data)}")
 
         st.markdown("---")
 
@@ -199,12 +228,17 @@ else:
                             st.success("Diagnosis Generated!")
                             st.write("---")
                             st.subheader("Diagnosis Result")
-                            st.write(data.get("diagnosis", "No diagnosis provided."))
+                            st.markdown(data.get("diagnosis") or "No diagnosis provided.")
                             st.write("---")
                             st.subheader("Sources")
-                            st.json(data.get("sources", []))
+                            for source in data.get("sources", []):
+                                st.write(f"- {source}")
+                            st.caption(
+                                f"Generated by {data.get('model', 'AI model')}. "
+                                "This is AI-generated information, not medical advice. Please consult a doctor."
+                            )
                         else:
-                            st.error(f"Diagnosis failed: {data.get('detail', 'Unknown error')}")
+                            st.error(f"Diagnosis failed: {format_error(data)}")
         else:
             st.info("Please upload a report first to get a Document ID.")
 
@@ -229,12 +263,13 @@ else:
                             st.write(f"**Date:** {datetime.datetime.fromtimestamp(record['timestamp']).strftime('%Y-%m-%d %H:%M:%S')}")
                             st.write(f"**Document ID:** {record['doc_id']}")
                             st.write(f"**Question:** {record['question']}")
+                            st.write(f"**Model:** {record.get('model', 'unknown')}")
                             st.subheader("Diagnosis Answer")
                             # The 'answer' field contains markdown, so render it as such
                             st.markdown(record['answer'])
                             
                             st.subheader("Sources")
-                            if record['sources']:
+                            if record.get('sources'):
                                 for source in record['sources']:
                                     st.write(f"- {source}")
                             else:
@@ -242,7 +277,38 @@ else:
                                 
                             st.markdown("---")
                     else:
-                        st.error(f"Failed to fetch records: {data.get('detail', 'Unknown error')}")
-                        
+                        st.error(f"Failed to fetch records: {format_error(data)}")
+
+    elif st.session_state.role == "admin":
+        st.header("Admin Dashboard")
+        st.markdown("---")
+
+        st.subheader("Create User")
+        with st.form("create_user_form"):
+            new_username = st.text_input("Username")
+            new_password = st.text_input("Password (min 6 chars)", type="password")
+            new_role = st.selectbox("Role", ["doctor", "patient", "admin"])
+            create_submitted = st.form_submit_button("Create User")
+            if create_submitted:
+                if new_username and new_password:
+                    status_code, data = admin_create_user(
+                        st.session_state.auth, new_username, new_password, new_role
+                    )
+                    if status_code == 200:
+                        st.success(data.get("message", "User created."))
+                    else:
+                        st.error(f"Create user failed: {format_error(data)}")
+                else:
+                    st.warning("Please fill in all fields.")
+
+        st.markdown("---")
+        st.subheader("All Users")
+        if st.button("Refresh user list"):
+            status_code, data = admin_list_users(st.session_state.auth)
+            if status_code == 200:
+                st.table(data)
+            else:
+                st.error(f"Failed to fetch users: {format_error(data)}")
+
     else:
         st.warning("Your role is not recognized. Please contact support.")
