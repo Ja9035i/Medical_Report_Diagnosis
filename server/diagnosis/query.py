@@ -3,15 +3,17 @@ import asyncio
 from langchain_core.prompts import PromptTemplate
 
 from ..config import llm
+from ..knowledge.kb import format_knowledge, knowledge_sources, search_kb
 from ..labs.extract import abnormal
 from .retrieval import hybrid_retrieve
 
 TOP_K = 5
+KB_K = 3
 
 prompt = PromptTemplate.from_template(
     """
-You are a medical assistant. Using ONLY the provided context (portions of the user's report)
-and the rule-checked lab values, produce:
+You are a medical assistant. Using ONLY the patient's report context, the rule-checked lab values
+and the reference medical knowledge below, produce:
 1) A concise probable diagnosis (1-2 lines)
 2) Key findings from the report (bullet points), citing the source in brackets, e.g. [report1.pdf, page 2]
 3) Recommended next steps (tests/treatments) — label clearly as suggestions, not medical advice.
@@ -19,12 +21,17 @@ and the rule-checked lab values, produce:
 The lab flags below were computed by deterministic rules from the report's numbers.
 Treat them as correct; do not re-judge whether a value is high or low.
 If any value is marked CRITICAL, state at the very start that the patient should seek urgent medical care.
+The reference medical knowledge is general background, NOT facts about this patient: use it to explain
+patterns and suggest confirmatory tests, and cite it as [KB: name]. Only state patient facts found in the report.
 If the context does not contain enough information to answer, say so instead of guessing.
 
 Rule-checked abnormal lab values:
 {lab_flags}
 
-Context:
+Reference medical knowledge:
+{knowledge}
+
+Patient report context:
 {context}
 
 User question:
@@ -80,17 +87,29 @@ async def diagnosis_report(user: str, doc_id: str, question: str, labs=None, chu
             "message": "No indexed content was found for this report. Please re-upload it.",
         }
 
-    # 4) Send the retrieved text (with source labels), rule-checked lab flags and question to the LLM
+    # 4) Second knowledge source: general medical knowledge relevant to the
+    #    question and the abnormal labs (dual-source RAG)
+    abnormal_labs = abnormal(labs or [])
+    kb_query = " ".join([question] + [f"{lab['test']} {lab['flag'].lower()}" for lab in abnormal_labs])
+    kb_entries = await asyncio.to_thread(search_kb, kb_query, KB_K)
+
+    # 5) Send report context, rule-checked lab flags, knowledge and question to the LLM
     context_text = "\n\n".join(contexts)
     final = await asyncio.to_thread(
         get_rag_chain().invoke,
-        {"context": context_text, "question": question, "lab_flags": format_lab_flags(labs)},
+        {
+            "context": context_text,
+            "question": question,
+            "lab_flags": format_lab_flags(labs),
+            "knowledge": format_knowledge(kb_entries),
+        },
     )
 
     return {
         "diagnosis": final.content,
         "sources": sources,
-        "abnormal_labs": abnormal(labs or []),
+        "knowledge_sources": knowledge_sources(kb_entries),
+        "abnormal_labs": abnormal_labs,
         "model": llm.get_model_label(),
         "message": "ok",
     }

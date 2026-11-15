@@ -237,6 +237,7 @@ def test_diagnosis_includes_rule_flags_in_prompt_and_response(client, signup, up
 
     assert "Potassium 6.9 mmol/L — HIGH" in captured["prompt"] and "CRITICAL" in captured["prompt"]
     assert "Hemoglobin 9.1 g/dL — LOW (ref 13-17, report range)" in captured["prompt"]
-    assert "Sodium" not in captured["prompt"].split("Context:")[0]  # normal values are not listed as flags
+    flags_section = captured["prompt"].split("Rule-checked abnormal lab values:")[1].split("Reference medical knowledge:")[0]
+    assert "Sodium" not in flags_section  # normal values are not listed as flags
     assert [lab["key"] for lab in body["abnormal_labs"]] == ["potassium", "hemoglobin"]
     assert len(body["critical_alerts"]) == 1
