@@ -114,6 +114,11 @@ async def load_vectorstore(uploaded_files: List[UploadFile], uploaded: str, doc_
         "filenames": filenames,
         "uploader": uploaded,
         "num_chunks": len(all_chunks),
+        # Chunk text kept here too, so BM25 keyword search can run over the whole report
+        "chunks": [
+            {"id": ids[i], "text": md["text"], "source": md["source"], "page": md.get("page")}
+            for i, md in enumerate(metadatas)
+        ],
         "labs": all_labs,
         "critical_alerts": critical_alerts,
         "uploaded_at": time.time(),

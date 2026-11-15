@@ -2,8 +2,9 @@ import asyncio
 
 from langchain_core.prompts import PromptTemplate
 
-from ..config import embeddings, llm, vectordb
+from ..config import llm
 from ..labs.extract import abnormal
+from .retrieval import hybrid_retrieve
 
 TOP_K = 5
 
@@ -59,33 +60,16 @@ def _source_label(md: dict) -> str:
     return f"{source} (page {page})" if page is not None else source
 
 
-async def diagnosis_report(user: str, doc_id: str, question: str, labs=None) -> dict:
-    # 1) Embed the question with the SAME model used at indexing time
-    embed_model = embeddings.get_embed_model()
-    embedding = await asyncio.to_thread(lambda: embed_model.encode(question).tolist())
-    index = vectordb.get_index()
+async def diagnosis_report(user: str, doc_id: str, question: str, labs=None, chunks=None) -> dict:
+    # 1-3) Hybrid retrieval over ONLY this report: vector + BM25, fused, reranked.
+    #      Results carry the ORIGINAL chunk text (vectors are never decoded).
+    retrieved = await hybrid_retrieve(question, doc_id, chunks=chunks, final_k=TOP_K)
 
-    # 2) Search ONLY this report's chunks. The filter runs inside Pinecone, so the
-    #    top-k is chosen from this doc_id (previously top-k was taken from the whole
-    #    index and filtered afterwards, which often left nothing).
-    results = await asyncio.to_thread(
-        index.query,
-        vector=embedding,
-        top_k=TOP_K,
-        include_metadata=True,
-        filter={"doc_id": {"$eq": doc_id}},
-    )
-
-    # 3) Read back the ORIGINAL TEXT stored as metadata (vectors are never decoded)
     contexts = []
     sources = []
-    for match in results.get("matches", []):
-        md = match.get("metadata", {}) or {}
-        text = md.get("text") or ""
-        if not text:
-            continue
-        label = _source_label(md)
-        contexts.append(f"[{label}]\n{text}")
+    for chunk in retrieved:
+        label = _source_label(chunk)
+        contexts.append(f"[{label}]\n{chunk['text']}")
         if label not in sources:
             sources.append(label)
 
