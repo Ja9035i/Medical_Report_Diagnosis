@@ -63,6 +63,30 @@ def report_labs(doc_id: str, user=Depends(authenticate)):
     }
 
 
+@router.get("/patient/{username}")
+def patient_reports(username: str, user=Depends(authenticate)):
+    """An assigned doctor's view of one patient's reports, newest first, with lab summaries."""
+    require_assigned(user, username)
+    cursor = reports_collection.find(
+        {"uploader": username},
+        {"_id": 0, "doc_id": 1, "filename": 1, "filenames": 1, "uploaded_at": 1, "labs": 1, "critical_alerts": 1},
+    ).sort("uploaded_at", -1)
+    reports = []
+    for r in cursor:
+        labs = r.get("labs", [])
+        reports.append({
+            "doc_id": r["doc_id"],
+            "filenames": r.get("filenames") or [f.strip() for f in r.get("filename", "").split(",") if f.strip()],
+            "uploaded_at": r["uploaded_at"],
+            "labs_found": len(labs),
+            "abnormal_count": len(abnormal(labs)),
+            "critical_alerts": r.get("critical_alerts", []),
+            "labs": labs,
+        })
+    log_event(user["username"], "doctor", "patient_reports_viewed", username, reports=len(reports))
+    return reports
+
+
 @router.get("/mine")
 def my_reports(user=Depends(authenticate)):
     """A patient's own reports, newest first, so they can come back to earlier uploads."""

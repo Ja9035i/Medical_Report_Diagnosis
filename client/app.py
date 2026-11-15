@@ -219,6 +219,10 @@ AUDIT_ACTIONS = ["(all)", "auth_failed", "login", "signup", "user_created", "ass
                  "assignment_removed", "report_uploaded", "labs_viewed", "diagnosis_created",
                  "history_viewed", "diagnosis_reviewed", "report_deleted"]
 
+def fmt_ts(ts):
+    return datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M") if ts else "—"
+
+
 REVIEW_BADGE = {
     "pending_review": "🕒 Awaiting doctor review",
     "approved": "✅ Doctor-verified",
@@ -475,6 +479,77 @@ else:
         st.header("Doctor Dashboard")
         st.markdown("---")
 
+        # ---------------- My Patients ----------------
+        st.subheader("My Patients")
+        status_code, patients = api_get(st.session_state.auth, "/assignments/my-patients")
+        if status_code != 200:
+            st.error(f"Could not load your patients: {format_error(patients)}")
+            patients = []
+        names = {p["username"]: (p.get("full_name") or p["username"]) for p in patients}
+        selected_patient = None
+        if not patients:
+            st.info("No patients are assigned to you yet. Ask an administrator to assign patients.")
+        else:
+            st.caption("Most urgent first (critical lab alerts, then pending reviews). "
+                       "Click a row to open the patient.")
+            table = [{
+                "Patient": names[p["username"]],
+                "Username": p["username"],
+                "Alerts": "🚨 Critical" if p["critical_reports"] else "—",
+                "Pending reviews": p["pending_reviews"],
+                "Reports": p["reports"],
+                "Latest upload": fmt_ts(p["latest_upload"]),
+                "Last diagnosis": fmt_ts(p["latest_diagnosis"]),
+            } for p in patients]
+            event = st.dataframe(table, hide_index=True, width="stretch",
+                                 on_select="rerun", selection_mode="single-row", key="my_patients_table")
+            selected_rows = event.selection.rows if event is not None else []
+            if selected_rows:
+                selected_patient = patients[selected_rows[0]]["username"]
+
+        # ---------------- Selected patient ----------------
+        if selected_patient:
+            st.markdown("---")
+            st.subheader(f"👤 {names[selected_patient]}  ·  `{selected_patient}`")
+            tab_reports, tab_history = st.tabs(["Reports & lab results", "Diagnosis history"])
+
+            with tab_reports:
+                status_code, reports = api_get(st.session_state.auth, f"/reports/patient/{selected_patient}")
+                if status_code != 200:
+                    st.error(format_error(reports))
+                elif not reports:
+                    st.caption("This patient has not uploaded any reports yet.")
+                for r in reports if status_code == 200 else []:
+                    label = (f"{'🚨 ' if r['critical_alerts'] else ''}{', '.join(r['filenames'])} — "
+                             f"{fmt_ts(r['uploaded_at'])} — {r['labs_found']} lab values, {r['abnormal_count']} abnormal")
+                    with st.expander(label, expanded=bool(r["critical_alerts"])):
+                        show_critical_banner(r["critical_alerts"])
+                        if r["labs"]:
+                            show_lab_table(r["labs"])
+                        else:
+                            st.caption("No lab values were found in this report.")
+
+            with tab_history:
+                status_code, history = get_doctor_diagnosis(st.session_state.auth, selected_patient)
+                if status_code == 404:
+                    st.caption("No diagnoses requested yet.")
+                elif status_code != 200:
+                    st.error(format_error(history))
+                for record in history if status_code == 200 else []:
+                    status = record.get("review_status", "pending_review")
+                    with st.expander(f"{REVIEW_BADGE.get(status, status)} — {fmt_ts(record['timestamp'])} — "
+                                     f"{record['question'][:60]}"):
+                        if record.get("reviewed_by"):
+                            st.caption(f"Reviewed by Dr. {record['reviewed_by']} on {fmt_ts(record.get('reviewed_at'))}")
+                        st.markdown(record.get("final_answer") or record["answer"])
+                        if record.get("doctor_note"):
+                            st.info(f"**Doctor's note:** {record['doctor_note']}")
+                        if record.get("sources"):
+                            st.caption("Sources: " + "; ".join(record["sources"]))
+                        st.caption(f"Model: {record.get('model', 'unknown')}")
+
+        # ---------------- Pending reviews ----------------
+        st.markdown("---")
         st.subheader("Pending Reviews")
         status_code, pending = api_get(st.session_state.auth, "/diagnosis/pending")
         if status_code != 200:
@@ -482,8 +557,8 @@ else:
         elif not pending:
             st.caption("Nothing to review. 🎉")
         for record in pending if status_code == 200 else []:
-            when = datetime.datetime.fromtimestamp(record["timestamp"]).strftime("%Y-%m-%d %H:%M")
-            with st.expander(f"🕒 {record['requester']} — {when} — {record['question'][:60]}"):
+            who = names.get(record["requester"], record["requester"])
+            with st.expander(f"🕒 {who} — {fmt_ts(record['timestamp'])} — {record['question'][:60]}"):
                 show_critical_banner(record.get("critical_alerts", []))
                 if record.get("abnormal_labs"):
                     st.markdown("**Abnormal lab values (rule-checked)**")
@@ -508,47 +583,6 @@ else:
                             st.success(f"Saved: {data['review_status']}. Refresh to update the list.")
                         else:
                             st.error(format_error(data))
-
-        st.markdown("---")
-        st.subheader("View Patient Diagnosis History")
-        status_code, mine = get_assignments(st.session_state.auth)
-        my_patients = mine.get("patients", []) if status_code == 200 else []
-        if not my_patients:
-            st.info("No patients are assigned to you yet. Ask an administrator to assign patients.")
-        with st.form("doctor_form"):
-            patient_name_input = st.selectbox("Your patients", my_patients) if my_patients else None
-            view_submitted = st.form_submit_button("View Diagnosis Records", disabled=not my_patients)
-            if view_submitted:
-                with st.spinner(f"Fetching diagnosis records for {patient_name_input}..."):
-                    status_code, data = get_doctor_diagnosis(st.session_state.auth, patient_name_input)
-                    if status_code == 200:
-                        st.success(f"Found {len(data)} diagnosis record(s) for **{patient_name_input}**.")
-                        st.markdown("---")
-                        
-                        # Loop through each diagnosis record and format it
-                        for record in data:
-                            st.info(f"**Diagnosis Record ID:** {record['_id']}")
-                            st.write(f"**Date:** {datetime.datetime.fromtimestamp(record['timestamp']).strftime('%Y-%m-%d %H:%M:%S')}")
-                            st.write(f"**Document ID:** {record['doc_id']}")
-                            st.write(f"**Question:** {record['question']}")
-                            st.write(f"**Model:** {record.get('model', 'unknown')}")
-                            status = record.get("review_status", "pending_review")
-                            st.write(f"**Review:** {REVIEW_BADGE.get(status, status)}"
-                                     + (f" by Dr. {record['reviewed_by']}" if record.get("reviewed_by") else ""))
-                            st.subheader("Diagnosis Answer")
-                            # The 'answer' field contains markdown, so render it as such
-                            st.markdown(record['answer'])
-                            
-                            st.subheader("Sources")
-                            if record.get('sources'):
-                                for source in record['sources']:
-                                    st.write(f"- {source}")
-                            else:
-                                st.write("No sources found.")
-                                
-                            st.markdown("---")
-                    else:
-                        st.error(f"Failed to fetch records: {format_error(data)}")
 
     elif st.session_state.role == "admin":
         st.header("Admin Dashboard")
@@ -580,11 +614,13 @@ else:
         users = users if users_status == 200 else []
         doctors = [u["username"] for u in users if u["role"] == "doctor"]
         patients = [u["username"] for u in users if u["role"] == "patient"]
+        user_label = {u["username"]: (f"{u['full_name']} ({u['username']})" if u.get("full_name") else u["username"])
+                      for u in users}
         if doctors and patients:
             with st.form("assignment_form"):
                 col1, col2 = st.columns(2)
-                chosen_doctor = col1.selectbox("Doctor", doctors)
-                chosen_patient = col2.selectbox("Patient", patients)
+                chosen_doctor = col1.selectbox("Doctor", doctors, format_func=lambda u: user_label.get(u, u))
+                chosen_patient = col2.selectbox("Patient", patients, format_func=lambda u: user_label.get(u, u))
                 col_a, col_b = st.columns(2)
                 do_assign = col_a.form_submit_button("Assign")
                 do_unassign = col_b.form_submit_button("Unassign")
@@ -601,7 +637,7 @@ else:
         status_code, assignments = get_assignments(st.session_state.auth)
         if status_code == 200 and assignments:
             st.table([
-                {"Doctor": a["doctor"], "Patient": a["patient"],
+                {"Doctor": user_label.get(a["doctor"], a["doctor"]), "Patient": user_label.get(a["patient"], a["patient"]),
                  "Since": datetime.datetime.fromtimestamp(a["assigned_at"]).strftime("%Y-%m-%d %H:%M")}
                 for a in assignments
             ])
