@@ -37,7 +37,7 @@ async def load_vectorstore(uploaded_files: List[UploadFile], uploaded: str, doc_
         if ext not in LOADERS:
             raise HTTPException(
                 status_code=400,
-                detail=f"Unsupported file type '{ext}' for {file.filename}. Allowed: PDF, TXT.",
+                detail=f"Unsupported file type '{ext}' for {file.filename}. Allowed: PDF, TXT, PNG, JPG.",
             )
 
     all_chunks = []
@@ -71,7 +71,7 @@ async def load_vectorstore(uploaded_files: List[UploadFile], uploaded: str, doc_
     if not all_chunks:
         raise HTTPException(
             status_code=400,
-            detail="No readable text found in the uploaded files (scanned PDFs need OCR).",
+            detail="No readable text found in the uploaded files (for scanned reports, install OCR: pip install -r requirements-ocr.txt).",
         )
 
     texts = [chunk.page_content for chunk in all_chunks]

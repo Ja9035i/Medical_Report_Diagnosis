@@ -231,8 +231,8 @@ else:
         st.subheader("Upload Your Report")
         with st.form("upload_form"):
             uploaded_files = st.file_uploader(
-                "Choose medical report files (e.g., PDF, TXT)",
-                type=["pdf", "txt"],
+                "Choose medical report files (PDF, TXT, or a photo/scan: PNG, JPG)",
+                type=["pdf", "txt", "png", "jpg", "jpeg"],
                 accept_multiple_files=True
             )
             upload_submitted = st.form_submit_button("Upload Reports")
