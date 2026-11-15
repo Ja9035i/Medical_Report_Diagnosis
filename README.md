@@ -19,6 +19,11 @@ An AI system that reads a patient's medical report (PDF or TXT) and generates a 
 - **Secure signup** — public signup always creates a *patient*; doctors are created only by an admin.
 - **Switchable LLM** — Groq (default `openai/gpt-oss-120b`) or Google Gemini via one `.env` setting; each answer records which model produced it.
 - **Audit-friendly history** — every diagnosis is stored with question, answer, sources, model and timestamp.
+- **Structured lab extraction** — lab values, units and reference ranges are parsed from the report text (e.g. `WBC Count: 11,500/uL (Reference: 4,000-11,000/uL)`).
+- **Rule-based flags, not LLM guesses** — HIGH / LOW / NORMAL is computed in Python from the report's own reference range (or a built-in default range when units match); the LLM receives these flags as trusted facts.
+- **Critical-value alerts** — hard-coded red-flag rules (e.g. potassium > 6.5 mmol/L) trigger an **URGENT** banner shown before any AI text.
+- **Scanned reports & photos** — pages without a text layer are read with OCR (RapidOCR); PNG/JPG uploads supported.
+- **My Reports** — patients can reopen any earlier upload.
 
 ---
 
@@ -46,7 +51,8 @@ flowchart LR
 PDF/TXT → save to disk → load pages → split into ~1000-char chunks (100 overlap)
         → MiniLM embedding (384-dim) → Pinecone upsert
           (vector + metadata: doc_id, uploader, source, page, original chunk text)
-        → report record in MongoDB (doc_id, filenames, uploader, num_chunks)
+        → lab values parsed from the text, flagged HIGH/LOW by rules, critical values checked
+        → report record in MongoDB (doc_id, filenames, uploader, num_chunks, labs, critical_alerts)
 ```
 
 **2. Diagnosis (retrieval + generation)**
@@ -74,6 +80,8 @@ The embedding model is only used for **similarity search**. The LLM receives the
 | LLM | Groq (`openai/gpt-oss-120b`) or Google Gemini (`gemini-2.5-flash`) |
 | Database | MongoDB (users, reports, diagnosis history) |
 | Auth | HTTP Basic + bcrypt password hashing, role-based access |
+| PDF / OCR | pypdf (layout mode); optional RapidOCR + pypdfium2 for scanned pages and photos |
+| Testing | pytest, mongomock, FastAPI TestClient |
 
 ---
 
@@ -85,7 +93,9 @@ The embedding model is only used for **similarity search**. The LLM receives the
 | `GET` | `/auth/login` | Any user | Verify credentials, return role |
 | `POST` | `/auth/users` | Admin | Create a user with a role (e.g. doctor) |
 | `GET` | `/auth/users` | Admin | List users (no password hashes) |
-| `POST` | `/reports/upload` | Patient | Upload one or more PDF/TXT files; returns `doc_id` |
+| `POST` | `/reports/upload` | Patient | Upload PDF/TXT/PNG/JPG files; returns `doc_id`, lab summary and critical alerts |
+| `GET` | `/reports/mine` | Patient | List own reports, newest first |
+| `GET` | `/reports/{doc_id}/labs` | Patient (own) / Doctor | Structured lab values, abnormal values and critical alerts |
 | `POST` | `/diagnosis/from_report` | Patient | Ask a question about **own** report |
 | `GET` | `/diagnosis/by_patient_name` | Doctor | View a patient's diagnosis history |
 | `GET` | `/health` | Public | Health check |
@@ -112,15 +122,23 @@ Interactive docs are available at `http://127.0.0.1:8000/docs` while the server 
 │   │   ├── vectordb.py         # Pinecone index (created if missing)
 │   │   └── llm.py              # Groq / Gemini provider switch
 │   ├── reports/
-│   │   ├── route.py            # upload endpoint
-│   │   └── vectorstore.py      # load → chunk → embed → upsert pipeline
+│   │   ├── route.py            # upload, my reports, lab results endpoints
+│   │   ├── loaders.py          # PDF (layout + OCR fallback), TXT, image loaders
+│   │   └── vectorstore.py      # load → extract labs → chunk → embed → upsert pipeline
+│   ├── labs/
+│   │   ├── reference.py        # default reference ranges + unit normalisation
+│   │   ├── extract.py          # lab-value parser + HIGH/LOW/NORMAL flags
+│   │   └── critical.py         # critical-value (red flag) rules
 │   ├── diagnosis/
 │   │   ├── route.py            # diagnosis + doctor history endpoints
-│   │   └── query.py            # retrieval + prompt + LLM call
+│   │   └── query.py            # retrieval + lab flags + prompt + LLM call
 │   └── models/
 │       └── db_models.py        # Pydantic models for stored records
+├── tests/                      # offline pytest suite (fakes for all external services)
 ├── .env.example                # all required settings (no secrets)
 ├── requirement.txt
+├── requirements-dev.txt        # + test tools
+├── requirements-ocr.txt        # + optional OCR
 └── pyproject.toml
 ```
 
@@ -144,6 +162,8 @@ python -m venv .venv
 # macOS / Linux
 source .venv/bin/activate
 pip install -r requirement.txt
+# Optional: OCR for scanned PDFs and photos of reports
+pip install -r requirements-ocr.txt
 ```
 
 ### 2. Configure environment
@@ -185,7 +205,7 @@ Open **http://localhost:8501**.
 
 ### Automated tests (offline)
 
-30 pytest tests cover auth/RBAC, upload, retrieval isolation, diagnosis, doctor history and My Reports. MongoDB, Pinecone, the embedding model and the LLM are replaced by in-memory fakes, so the suite runs in seconds, needs no API keys and never touches real data.
+65 pytest tests cover auth/RBAC, upload, retrieval isolation, diagnosis, doctor history, My Reports, lab extraction and flagging, critical-value rules and OCR. MongoDB, Pinecone, the embedding model and the LLM are replaced by in-memory fakes, so the suite runs in seconds, needs no API keys and never touches real data.
 
 ```bash
 pip install -r requirements-dev.txt
@@ -209,7 +229,8 @@ The API was also verified end-to-end against live MongoDB, Pinecone and Groq wit
 
 - [x] "My Reports" list so patients can return to earlier reports
 - [x] Automated offline test suite (pytest)
-- [ ] Structured lab-value extraction with rule-based abnormal flags and critical-value alerts
+- [x] Structured lab-value extraction with rule-based abnormal flags and critical-value alerts
+- [x] OCR for scanned reports and photos
 - [ ] Medical knowledge base (dual-source RAG) and ranked differential diagnosis
 - [ ] Doctor-in-the-loop review, doctor–patient assignment and audit log
 - [ ] RAG evaluation (RAGAS) and Groq vs Gemini comparison on a test set
