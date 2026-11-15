@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from pymongo.errors import DuplicateKeyError
 
+from ..audit import log_event
 from ..config.db import assignments_collection, users_collection
 from .route import authenticate, require_admin
 
@@ -53,6 +54,7 @@ def assign(req: AssignmentRequest, admin=Depends(require_admin)):
             {"doctor": req.doctor, "patient": req.patient, "assigned_at": time.time()})
     except DuplicateKeyError:
         raise HTTPException(status_code=400, detail="Already assigned")
+    log_event(admin["username"], "admin", "assignment_created", req.patient, doctor=req.doctor)
     return {"message": f"Patient '{req.patient}' assigned to doctor '{req.doctor}'"}
 
 
@@ -61,6 +63,7 @@ def unassign(req: AssignmentRequest, admin=Depends(require_admin)):
     result = assignments_collection.delete_one({"doctor": req.doctor, "patient": req.patient})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Assignment not found")
+    log_event(admin["username"], "admin", "assignment_removed", req.patient, doctor=req.doctor)
     return {"message": f"Patient '{req.patient}' unassigned from doctor '{req.doctor}'"}
 
 

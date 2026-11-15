@@ -3,6 +3,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 
+from ..audit import log_event
 from ..auth.assignments import require_assigned
 from ..auth.route import authenticate
 from ..config.db import reports_collection
@@ -19,6 +20,9 @@ async def upload_reports(user=Depends(authenticate), files: List[UploadFile] = F
 
     doc_id = str(uuid.uuid4())
     result = await load_vectorstore(files, uploaded=user["username"], doc_id=doc_id)
+    log_event(user["username"], "patient", "report_uploaded", doc_id,
+              files=[f.filename for f in files], labs_found=len(result["labs"]),
+              critical_alerts=len(result["critical_alerts"]))
     return {
         "message": "Uploaded and indexed",
         "doc_id": doc_id,
@@ -43,6 +47,7 @@ def report_labs(doc_id: str, user=Depends(authenticate)):
     else:
         raise HTTPException(status_code=403, detail="Only the patient or their doctor can view lab results")
 
+    log_event(user["username"], user["role"], "labs_viewed", doc_id, patient=report["uploader"])
     labs = report.get("labs", [])
     return {
         "doc_id": doc_id,

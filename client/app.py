@@ -201,6 +201,10 @@ def show_differential_table(differential):
                "It is a list of possibilities to discuss with a doctor, not a diagnosis.")
 
 
+AUDIT_ACTIONS = ["(all)", "auth_failed", "login", "signup", "user_created", "assignment_created",
+                 "assignment_removed", "report_uploaded", "labs_viewed", "diagnosis_created",
+                 "history_viewed", "diagnosis_reviewed", "report_deleted"]
+
 REVIEW_BADGE = {
     "pending_review": "🕒 Awaiting doctor review",
     "approved": "✅ Doctor-verified",
@@ -548,6 +552,38 @@ else:
                 st.table(data)
             else:
                 st.error(f"Failed to fetch users: {format_error(data)}")
+
+        st.markdown("---")
+        st.subheader("Audit Log")
+        st.caption("Who did what, and when. Failed logins are recorded too.")
+        col1, col2, col3 = st.columns([2, 2, 1])
+        actor_filter = col1.text_input("Filter by user", key="audit_actor")
+        action_filter = col2.selectbox("Filter by action", AUDIT_ACTIONS, key="audit_action")
+        limit = col3.number_input("Show", min_value=10, max_value=1000, value=50, step=10, key="audit_limit")
+        params = {"limit": int(limit)}
+        if actor_filter:
+            params["actor"] = actor_filter
+        if action_filter != "(all)":
+            params["action"] = action_filter
+        try:
+            response = requests.get(f"{API_URL}/audit", auth=st.session_state.auth, params=params)
+            events = response.json() if response.status_code == 200 else []
+        except requests.exceptions.ConnectionError:
+            events = []
+        if events:
+            st.table([
+                {
+                    "Time": datetime.datetime.fromtimestamp(e["timestamp"]).strftime("%Y-%m-%d %H:%M:%S"),
+                    "User": e["actor"],
+                    "Role": e.get("role") or "—",
+                    "Action": e["action"],
+                    "Target": e.get("target") or "—",
+                    "Details": ", ".join(f"{k}={v}" for k, v in (e.get("details") or {}).items()) or "—",
+                }
+                for e in events
+            ])
+        else:
+            st.caption("No matching events.")
 
     else:
         st.warning("Your role is not recognized. Please contact support.")

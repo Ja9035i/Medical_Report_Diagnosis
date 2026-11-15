@@ -6,6 +6,7 @@ from bson.errors import InvalidId
 from fastapi import APIRouter, Depends, Form, HTTPException
 from pydantic import BaseModel, Field
 
+from ..audit import log_event
 from ..auth.assignments import assigned_patients, require_assigned
 from ..auth.route import authenticate
 from ..config.db import reports_collection, diagnosis_collection
@@ -67,6 +68,8 @@ async def diagnos(
         "timestamp": time.time(),
     })
     res["record_id"] = str(result.inserted_id)
+    log_event(user["username"], "patient", "diagnosis_created", res["record_id"],
+              doc_id=doc_id, model=res.get("model"), grounded=res.get("grounded"))
     res["review_status"] = PENDING
     return res
 
@@ -127,6 +130,8 @@ async def review_diagnosis(record_id: str, req: ReviewRequest, user=Depends(auth
         "reviewed_at": time.time(),
     }
     diagnosis_collection.update_one({"_id": oid}, {"$set": update})
+    log_event(user["username"], "doctor", "diagnosis_reviewed", record_id,
+              patient=record["requester"], decision=update["review_status"])
     return {"record_id": record_id, **update}
 
 
@@ -140,4 +145,5 @@ async def get_patient_diagnosis(patient_name: str, user=Depends(authenticate)):
     records = list(diagnosis_collection.find({"requester": patient_name}).sort("timestamp", -1))
     if not records:
         raise HTTPException(status_code=404, detail="No diagnosis found for this patient")
+    log_event(user["username"], "doctor", "history_viewed", patient_name, records=len(records))
     return [_serialize(r) for r in records]
