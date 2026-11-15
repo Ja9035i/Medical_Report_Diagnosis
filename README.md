@@ -105,7 +105,7 @@ Interactive docs are available at `http://127.0.0.1:8000/docs` while the server 
 │   ├── auth/
 │   │   ├── route.py            # signup, login, admin user management, RBAC
 │   │   ├── models.py           # request schemas + validation
-│   │   └── hash_utilis.py      # bcrypt hashing
+│   │   └── hash_utils.py       # bcrypt hashing
 │   ├── config/
 │   │   ├── db.py               # MongoDB collections
 │   │   ├── embeddings.py       # shared embedding model (loaded once)
@@ -113,7 +113,7 @@ Interactive docs are available at `http://127.0.0.1:8000/docs` while the server 
 │   │   └── llm.py              # Groq / Gemini provider switch
 │   ├── reports/
 │   │   ├── route.py            # upload endpoint
-│   │   └── vectorestores.py    # load → chunk → embed → upsert pipeline
+│   │   └── vectorstore.py      # load → chunk → embed → upsert pipeline
 │   ├── diagnosis/
 │   │   ├── route.py            # diagnosis + doctor history endpoints
 │   │   └── query.py            # retrieval + prompt + LLM call
