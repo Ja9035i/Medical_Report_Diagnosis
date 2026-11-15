@@ -14,3 +14,4 @@ db=client[DB_NAME]
 users_collection=db["users"]
 reports_collection=db["reports"]
 diagnosis_collection=db["diagnosis_history"]
+assignments_collection=db["assignments"]  # which doctor cares for which patient

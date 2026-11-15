@@ -1,0 +1,81 @@
+"""
+Doctor–patient assignments.
+
+A doctor may only see the records of patients assigned to them by an admin.
+"""
+import time
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+from pymongo.errors import DuplicateKeyError
+
+from ..config.db import assignments_collection, users_collection
+from .route import authenticate, require_admin
+
+router = APIRouter(prefix="/assignments", tags=["assignments"])
+
+
+class AssignmentRequest(BaseModel):
+    doctor: str = Field(min_length=3, max_length=50)
+    patient: str = Field(min_length=3, max_length=50)
+
+
+def is_assigned(doctor: str, patient: str) -> bool:
+    return assignments_collection.find_one({"doctor": doctor, "patient": patient}) is not None
+
+
+def assigned_patients(doctor: str):
+    return sorted(a["patient"] for a in assignments_collection.find({"doctor": doctor}))
+
+
+def require_assigned(user, patient: str):
+    """Raise 403 unless `user` is a doctor assigned to `patient`."""
+    if user["role"] != "doctor" or not is_assigned(user["username"], patient):
+        raise HTTPException(status_code=403, detail="This patient is not assigned to you")
+
+
+def _require_role(username: str, role: str):
+    user = users_collection.find_one({"username": username})
+    if not user:
+        raise HTTPException(status_code=404, detail=f"User '{username}' not found")
+    if user["role"] != role:
+        raise HTTPException(status_code=400, detail=f"User '{username}' is not a {role}")
+
+
+@router.post("")
+def assign(req: AssignmentRequest, admin=Depends(require_admin)):
+    _require_role(req.doctor, "doctor")
+    _require_role(req.patient, "patient")
+    if is_assigned(req.doctor, req.patient):
+        raise HTTPException(status_code=400, detail="Already assigned")
+    try:
+        assignments_collection.insert_one(
+            {"doctor": req.doctor, "patient": req.patient, "assigned_at": time.time()})
+    except DuplicateKeyError:
+        raise HTTPException(status_code=400, detail="Already assigned")
+    return {"message": f"Patient '{req.patient}' assigned to doctor '{req.doctor}'"}
+
+
+@router.delete("")
+def unassign(req: AssignmentRequest, admin=Depends(require_admin)):
+    result = assignments_collection.delete_one({"doctor": req.doctor, "patient": req.patient})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    return {"message": f"Patient '{req.patient}' unassigned from doctor '{req.doctor}'"}
+
+
+@router.get("")
+def list_assignments(user=Depends(authenticate)):
+    """Admin: every assignment. Doctor: their own patients."""
+    if user["role"] == "admin":
+        return list(assignments_collection.find({}, {"_id": 0}).sort([("doctor", 1), ("patient", 1)]))
+    if user["role"] == "doctor":
+        return {"doctor": user["username"], "patients": assigned_patients(user["username"])}
+    raise HTTPException(status_code=403, detail="Only admins and doctors can view assignments")
+
+
+def ensure_assignment_index():
+    try:
+        assignments_collection.create_index([("doctor", 1), ("patient", 1)], unique=True)
+    except Exception as exc:
+        print(f"[startup] Could not create assignments index: {exc}")

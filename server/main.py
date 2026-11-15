@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .auth.assignments import ensure_assignment_index, router as assignments_router
 from .auth.route import router as auth_router, ensure_admin
 from .reports.route import router as report_router
 from .diagnosis.route import router as diagnosis_router
@@ -11,6 +12,7 @@ from .diagnosis.route import router as diagnosis_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     ensure_admin()  # unique usernames + bootstrap the first admin from .env
+    ensure_assignment_index()
     yield
 
 
@@ -24,6 +26,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(assignments_router)
 app.include_router(report_router)
 app.include_router(diagnosis_router)
 

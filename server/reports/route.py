@@ -3,6 +3,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 
+from ..auth.assignments import require_assigned
 from ..auth.route import authenticate
 from ..config.db import reports_collection
 from ..labs.extract import abnormal
@@ -30,14 +31,17 @@ async def upload_reports(user=Depends(authenticate), files: List[UploadFile] = F
 
 @router.get("/{doc_id}/labs")
 def report_labs(doc_id: str, user=Depends(authenticate)):
-    """Structured lab values for a report: the owning patient or a doctor may view them."""
+    """Structured lab values: the owning patient, or a doctor assigned to that patient."""
     report = reports_collection.find_one({"doc_id": doc_id}, {"_id": 0})
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
-    if user["role"] == "patient" and report["uploader"] != user["username"]:
-        raise HTTPException(status_code=403, detail="You cannot access another user's report")
-    if user["role"] not in ("patient", "doctor"):
-        raise HTTPException(status_code=403, detail="Only the patient or a doctor can view lab results")
+    if user["role"] == "patient":
+        if report["uploader"] != user["username"]:
+            raise HTTPException(status_code=403, detail="You cannot access another user's report")
+    elif user["role"] == "doctor":
+        require_assigned(user, report["uploader"])
+    else:
+        raise HTTPException(status_code=403, detail="Only the patient or their doctor can view lab results")
 
     labs = report.get("labs", [])
     return {
