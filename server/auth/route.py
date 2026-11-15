@@ -6,6 +6,7 @@ from pymongo.errors import DuplicateKeyError
 
 from .models import SignupRequest, CreateUserRequest
 from .hash_utils import hash_password, verify_password
+from ..audit import log_event
 from ..config.db import users_collection
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -15,6 +16,7 @@ security = HTTPBasic()
 def authenticate(credentials: HTTPBasicCredentials = Depends(security)):
     user = users_collection.find_one({"username": credentials.username})
     if not user or not verify_password(credentials.password, user["password"]):
+        log_event(credentials.username, None, "auth_failed")
         raise HTTPException(status_code=401, detail="Invalid credentials")
     return {"username": user["username"], "role": user["role"]}
 
@@ -42,11 +44,13 @@ def signup(req: SignupRequest):
     if users_collection.find_one({"username": req.username}):
         raise HTTPException(status_code=400, detail="User already exists")
     _create_user(req.username, req.password, "patient")
+    log_event(req.username, "patient", "signup")
     return {"message": "Patient account created successfully"}
 
 
 @router.get("/login")
 def login(user=Depends(authenticate)):
+    log_event(user["username"], user["role"], "login")
     return {"username": user["username"], "role": user["role"]}
 
 
@@ -56,6 +60,7 @@ def create_user(req: CreateUserRequest, admin=Depends(require_admin)):
     if users_collection.find_one({"username": req.username}):
         raise HTTPException(status_code=400, detail="User already exists")
     _create_user(req.username, req.password, req.role)
+    log_event(admin["username"], "admin", "user_created", req.username, new_role=req.role)
     return {"message": f"{req.role.capitalize()} '{req.username}' created successfully"}
 
 
