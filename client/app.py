@@ -312,6 +312,9 @@ else:
                             f"Found {data.get('labs_found', 0)} lab values, "
                             f"{data.get('abnormal_count', 0)} outside the reference range."
                         )
+                        if data.get("redacted"):
+                            st.caption(f"🔒 {data['redacted']} personal identifier(s) (name, ID, phone, etc.) "
+                                       "were removed before indexing and AI analysis.")
                         st.session_state.doc_id = data['doc_id'] # Store doc_id for later use
                     else:
                         st.error(f"Upload failed: {format_error(data)}")

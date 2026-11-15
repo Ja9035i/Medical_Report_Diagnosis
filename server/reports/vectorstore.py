@@ -12,6 +12,7 @@ from ..config import embeddings, vectordb
 from ..config.db import reports_collection
 from ..labs.critical import check_critical
 from ..labs.extract import extract_lab_values
+from ..privacy.redact import redact_text, redaction_enabled
 from .loaders import LOADERS
 
 load_dotenv()
@@ -43,6 +44,7 @@ async def load_vectorstore(uploaded_files: List[UploadFile], uploaded: str, doc_
     all_chunks = []
     filenames = []
     all_labs = []
+    redactions = {}
 
     for file in uploaded_files:
         filename = Path(file.filename).name
@@ -54,19 +56,28 @@ async def load_vectorstore(uploaded_files: List[UploadFile], uploaded: str, doc_
         with open(save_path, "wb") as f:
             f.write(content)
 
-        # 2) Load -> 3) split, for EVERY file (previously only the last file was indexed)
+        # 2) Load every file (previously only the last file was indexed)
         documents = await asyncio.to_thread(LOADERS[ext], str(save_path))
+
+        # Structured lab values with deterministic HIGH/LOW flags (no LLM), from the original text
+        file_labs = extract_lab_values("\n".join(doc.page_content for doc in documents))
+        for lab in file_labs:
+            lab["source"] = filename
+        all_labs.extend(file_labs)
+
+        # Remove personal identifiers BEFORE chunking, so they never reach Pinecone or the LLM
+        if redaction_enabled():
+            for doc in documents:
+                doc.page_content, counts = redact_text(doc.page_content)
+                for key, n in counts.items():
+                    redactions[key] = redactions.get(key, 0) + n
+
+        # 3) Split into chunks
         chunks = splitter.split_documents(documents)
         for chunk in chunks:
             chunk.metadata["source"] = filename
         all_chunks.extend(chunks)
         filenames.append(filename)
-
-        # Structured lab values with deterministic HIGH/LOW flags (no LLM)
-        file_labs = extract_lab_values("\n".join(doc.page_content for doc in documents))
-        for lab in file_labs:
-            lab["source"] = filename
-        all_labs.extend(file_labs)
 
     if not all_chunks:
         raise HTTPException(
@@ -121,7 +132,9 @@ async def load_vectorstore(uploaded_files: List[UploadFile], uploaded: str, doc_
         ],
         "labs": all_labs,
         "critical_alerts": critical_alerts,
+        "redactions": {k: v for k, v in redactions.items() if v},
         "uploaded_at": time.time(),
     })
 
-    return {"num_chunks": len(all_chunks), "labs": all_labs, "critical_alerts": critical_alerts}
+    return {"num_chunks": len(all_chunks), "labs": all_labs, "critical_alerts": critical_alerts,
+            "redacted": sum(redactions.values())}
