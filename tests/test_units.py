@@ -54,3 +54,21 @@ def test_llm_model_label_override(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "gemini")
     monkeypatch.setenv("GEMINI_MODEL", "gemini-test")
     assert llm.get_model_label() == "gemini:gemini-test"
+
+
+def test_format_lab_flags():
+    from server.diagnosis.query import format_lab_flags
+    labs = [
+        {"test": "Potassium", "value": 6.9, "unit": "mmol/L", "ref_low": 3.5, "ref_high": 5.1,
+         "range_source": "default", "flag": "HIGH", "critical": True},
+        {"test": "CRP", "value": 12.0, "unit": "mg/L", "ref_low": None, "ref_high": 5.0,
+         "range_source": "report", "flag": "HIGH", "critical": False},
+        {"test": "Sodium", "value": 140.0, "unit": "mmol/L", "ref_low": 135, "ref_high": 145,
+         "range_source": "default", "flag": "NORMAL", "critical": False},
+    ]
+    text = format_lab_flags(labs)
+    assert text.splitlines() == [
+        "- Potassium 6.9 mmol/L — HIGH (ref 3.5-5.1, default range) — CRITICAL",
+        "- CRP 12 mg/L — HIGH (ref ≤ 5, report range)",
+    ]
+    assert format_lab_flags([]) == "None detected."

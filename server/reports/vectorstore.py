@@ -10,6 +10,8 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from ..config import embeddings, vectordb
 from ..config.db import reports_collection
+from ..labs.critical import check_critical
+from ..labs.extract import extract_lab_values
 from .loaders import LOADERS
 
 load_dotenv()
@@ -22,11 +24,12 @@ UPSERT_BATCH_SIZE = 100  # stay well under Pinecone's per-request size limit
 splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
 
 
-async def load_vectorstore(uploaded_files: List[UploadFile], uploaded: str, doc_id: str) -> int:
+async def load_vectorstore(uploaded_files: List[UploadFile], uploaded: str, doc_id: str) -> dict:
     """
     Save every uploaded file, chunk its text, embed the chunks, upsert them into
-    Pinecone (vector + original text as metadata) and record the report in MongoDB.
-    Returns the number of chunks indexed.
+    Pinecone (vector + original text as metadata), extract structured lab values
+    with rule-based flags, and record the report in MongoDB.
+    Returns {"num_chunks", "labs", "critical_alerts"}.
     """
     # Validate all file types first so we never save half of a bad upload.
     for file in uploaded_files:
@@ -39,6 +42,7 @@ async def load_vectorstore(uploaded_files: List[UploadFile], uploaded: str, doc_
 
     all_chunks = []
     filenames = []
+    all_labs = []
 
     for file in uploaded_files:
         filename = Path(file.filename).name
@@ -57,6 +61,12 @@ async def load_vectorstore(uploaded_files: List[UploadFile], uploaded: str, doc_
             chunk.metadata["source"] = filename
         all_chunks.extend(chunks)
         filenames.append(filename)
+
+        # Structured lab values with deterministic HIGH/LOW flags (no LLM)
+        file_labs = extract_lab_values("\n".join(doc.page_content for doc in documents))
+        for lab in file_labs:
+            lab["source"] = filename
+        all_labs.extend(file_labs)
 
     if not all_chunks:
         raise HTTPException(
@@ -94,14 +104,19 @@ async def load_vectorstore(uploaded_files: List[UploadFile], uploaded: str, doc_
 
     await asyncio.to_thread(upsert)
 
-    # 6) Report metadata in MongoDB (ownership is checked against "uploader")
+    # 6) Critical-value rules (red flags) on the extracted labs
+    critical_alerts = check_critical(all_labs)
+
+    # 7) Report metadata in MongoDB (ownership is checked against "uploader")
     reports_collection.insert_one({
         "doc_id": doc_id,
         "filename": ", ".join(filenames),
         "filenames": filenames,
         "uploader": uploaded,
         "num_chunks": len(all_chunks),
+        "labs": all_labs,
+        "critical_alerts": critical_alerts,
         "uploaded_at": time.time(),
     })
 
-    return len(all_chunks)
+    return {"num_chunks": len(all_chunks), "labs": all_labs, "critical_alerts": critical_alerts}

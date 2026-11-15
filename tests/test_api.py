@@ -186,3 +186,57 @@ def test_my_reports_newest_first_and_isolated(client, signup, upload):
 
 def test_my_reports_patients_only(client, admin_auth):
     assert client.get("/reports/mine", auth=admin_auth).status_code == 403
+
+
+# ---------------- lab extraction, red flags, labs endpoint ----------------
+
+LABS_TXT = ("labs.txt", b"Potassium: 6.9 mmol/L\nHemoglobin: 9.1 g/dL (reference 13.0-17.0)\nSodium: 140 mmol/L",
+            "text/plain")
+
+
+def test_upload_returns_lab_summary_and_critical_alerts(client, signup, upload):
+    body = upload(signup("alice"), [LABS_TXT]).json()
+    assert body["labs_found"] == 3
+    assert body["abnormal_count"] == 2
+    assert body["critical_alerts"] == ["Potassium 6.9 mmol/L is above the critical limit (6.5 mmol/L)"]
+
+
+def test_labs_endpoint_access_rules(client, signup, upload, admin_auth):
+    alice, bob = signup("alice"), signup("bobby")
+    doc_id = upload(alice, [LABS_TXT]).json()["doc_id"]
+    client.post("/auth/users", auth=admin_auth, json={"username": "drkumar", "password": PASSWORD, "role": "doctor"})
+
+    r = client.get(f"/reports/{doc_id}/labs", auth=alice)
+    assert r.status_code == 200
+    body = r.json()
+    assert [lab["key"] for lab in body["abnormal"]] == ["potassium", "hemoglobin"]
+    assert body["extracted"] is True and body["uploader"] == "alice"
+
+    assert client.get(f"/reports/{doc_id}/labs", auth=("drkumar", PASSWORD)).status_code == 200
+    assert client.get(f"/reports/{doc_id}/labs", auth=bob).status_code == 403
+    assert client.get(f"/reports/{doc_id}/labs", auth=admin_auth).status_code == 403
+    assert client.get("/reports/missing/labs", auth=alice).status_code == 404
+
+
+def test_diagnosis_includes_rule_flags_in_prompt_and_response(client, signup, upload, monkeypatch):
+    from langchain_core.messages import AIMessage
+    from langchain_core.runnables import RunnableLambda
+    from server.config import llm
+
+    captured = {}
+
+    def recording_llm(prompt_value):
+        captured["prompt"] = prompt_value.to_string()
+        return AIMessage(content="answer")
+
+    monkeypatch.setattr(llm, "get_llm", lambda: RunnableLambda(recording_llm))
+
+    alice = signup("alice")
+    doc_id = upload(alice, [LABS_TXT]).json()["doc_id"]
+    body = client.post("/diagnosis/from_report", auth=alice, data={"doc_id": doc_id, "question": "q"}).json()
+
+    assert "Potassium 6.9 mmol/L — HIGH" in captured["prompt"] and "CRITICAL" in captured["prompt"]
+    assert "Hemoglobin 9.1 g/dL — LOW (ref 13-17, report range)" in captured["prompt"]
+    assert "Sodium" not in captured["prompt"].split("Context:")[0]  # normal values are not listed as flags
+    assert [lab["key"] for lab in body["abnormal_labs"]] == ["potassium", "hemoglobin"]
+    assert len(body["critical_alerts"]) == 1
