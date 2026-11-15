@@ -14,5 +14,5 @@ async def upload_reports(user=Depends(authenticate),files:List[UploadFile]=File(
         raise HTTPException(status_code=403,detail="Only patients can upload reports for diagnosis")
     
     doc_id=str(uuid.uuid4())
-    await load_vectorstore(files,uploaded=user["username"],doc_id=doc_id)
-    return {"message":"Uploaded and indexed","doc_id":doc_id}
+    num_chunks = await load_vectorstore(files, uploaded=user["username"], doc_id=doc_id)
+    return {"message": "Uploaded and indexed", "doc_id": doc_id, "num_chunks": num_chunks}
