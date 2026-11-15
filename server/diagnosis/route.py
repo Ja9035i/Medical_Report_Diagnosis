@@ -89,8 +89,11 @@ async def pending_reviews(user=Depends(authenticate)):
     if user["role"] != "doctor":
         raise HTTPException(status_code=403, detail="Only doctors review diagnoses")
     patients = assigned_patients(user["username"])
-    records = diagnosis_collection.find(
-        {"requester": {"$in": patients}, "review_status": PENDING}).sort("timestamp", 1)
+    # Records created before reviews existed have no review_status: treat them as pending too
+    records = diagnosis_collection.find({
+        "requester": {"$in": patients},
+        "$or": [{"review_status": PENDING}, {"review_status": {"$exists": False}}],
+    }).sort("timestamp", 1)
     return [_serialize(r) for r in records]
 
 
