@@ -33,6 +33,8 @@ An AI system that reads a patient's medical report (PDF or TXT) and generates a 
 - **Audit log** — signups, logins, failed logins, uploads, lab views, diagnoses, history views, reviews, assignments and deletions are recorded; admins can filter the log.
 - **Right to delete** — patients can permanently delete a report: vectors, raw files, the report record and its diagnosis history.
 - **Privacy by design** — names, patient IDs, dates of birth, phone numbers, emails and addresses are removed **before** text is indexed or sent to an LLM (age and sex are kept).
+- **JWT login** — the password is sent once to get a short-lived signed token; every later request carries the token. The user and role are re-checked in the database on each request, so forged role claims and deleted accounts are rejected.
+- **Evaluation harness** — 30 synthetic cases measure lab extraction, red-flag recall, differential accuracy and (optionally) LLM answer quality, with a Groq vs Gemini comparison.
 
 ---
 
@@ -40,7 +42,7 @@ An AI system that reads a patient's medical report (PDF or TXT) and generates a 
 
 ```mermaid
 flowchart LR
-    UI[Streamlit client] -- HTTP Basic Auth --> API[FastAPI backend]
+    UI[Streamlit client] -- JWT Bearer token --> API[FastAPI backend]
     API --> AUTH[Auth & RBAC]
     AUTH --> MDB[(MongoDB<br/>users · reports · history)]
     API --> UP[Upload pipeline]
@@ -96,9 +98,9 @@ The embedding model is only used for **similarity search**. The LLM receives the
 | Vector database | Pinecone (serverless) |
 | LLM | Groq (`openai/gpt-oss-120b`) or Google Gemini (`gemini-2.5-flash`) |
 | Database | MongoDB (users, reports, diagnosis history) |
-| Auth | HTTP Basic + bcrypt password hashing, role-based access |
+| Auth | JWT (PyJWT, HS256) + bcrypt password hashing, role-based access |
 | PDF / OCR | pypdf (layout mode); optional RapidOCR + pypdfium2 for scanned pages and photos |
-| Testing | pytest, mongomock, FastAPI TestClient |
+| Testing / evaluation | pytest, mongomock, FastAPI TestClient; custom evaluation harness |
 
 ---
 
@@ -107,7 +109,9 @@ The embedding model is only used for **similarity search**. The LLM receives the
 | Method | Endpoint | Role | Description |
 |---|---|---|---|
 | `POST` | `/auth/signup` | Public | Create a **patient** account |
-| `GET` | `/auth/login` | Any user | Verify credentials, return role |
+| `POST` | `/auth/token` | Public | Exchange username + password (form) for a JWT access token |
+| `GET` | `/auth/me` | Any user | Current user and role (from the token) |
+| `GET` | `/auth/login` | Any user | Legacy Basic-auth login (only if `ALLOW_BASIC_AUTH=true`) |
 | `POST` | `/auth/users` | Admin | Create a user with a role (e.g. doctor) |
 | `GET` | `/auth/users` | Admin | List users (no password hashes) |
 | `POST` | `/reports/upload` | Patient | Upload PDF/TXT/PNG/JPG files; returns `doc_id`, lab summary and critical alerts |
@@ -215,6 +219,9 @@ Copy `.env.example` to `.env` and fill in your values:
 | `RERANKER_ENABLED`, `RERANKER_TIMEOUT` | Cross-encoder reranker on/off and max wait (seconds) |
 | `GROUNDING_CHECK`, `GROUNDING_MODE` | Grounding check on/off; `warn` (flag) or `refuse` unsupported answers |
 | `PII_REDACTION` | Remove personal identifiers before indexing and LLM calls (default `true`) |
+| `JWT_SECRET`, `JWT_EXPIRE_MINUTES` | Token signing secret (long random string) and token lifetime |
+| `ALLOW_BASIC_AUTH` | Allow legacy HTTP Basic auth (default `false`) |
+| `LLM_TIMEOUT` | Max seconds per LLM call before failing cleanly (default `60`) |
 | `ADMIN_USERNAME`, `ADMIN_PASSWORD` | First admin account, created at startup |
 
 Create `client/.env` with:
@@ -243,12 +250,36 @@ Open **http://localhost:8501**.
 
 ### Automated tests (offline)
 
-125 pytest tests cover auth/RBAC, doctor–patient assignments, doctor review, the audit log, report deletion, PII redaction, upload, retrieval isolation, hybrid retrieval and reranking, diagnosis, doctor history, My Reports, lab extraction and flagging, critical-value rules, OCR, the knowledge base, the differential diagnosis and every path of the LangGraph grounding loop. MongoDB, Pinecone, the embedding model and the LLM are replaced by in-memory fakes, so the suite runs in seconds, needs no API keys and never touches real data.
+138 pytest tests cover JWT login, the evaluation harness, auth/RBAC, doctor–patient assignments, doctor review, the audit log, report deletion, PII redaction, upload, retrieval isolation, hybrid retrieval and reranking, diagnosis, doctor history, My Reports, lab extraction and flagging, critical-value rules, OCR, the knowledge base, the differential diagnosis and every path of the LangGraph grounding loop. MongoDB, Pinecone, the embedding model and the LLM are replaced by in-memory fakes, so the suite runs in seconds, needs no API keys and never touches real data.
 
 ```bash
 pip install -r requirements-dev.txt
 pytest tests -q
 ```
+
+### Evaluation (synthetic cases)
+
+```bash
+python -m evaluation.run_eval                                   # deterministic metrics, offline
+python -m evaluation.run_eval --llm --providers groq,gemini --delay 4   # + LLM pipeline
+```
+
+Latest run ([full report](evaluation/results/eval_20261115.md)):
+
+| Deterministic pipeline (30 cases) | Result |
+|---|---|
+| Lab extraction precision / recall / F1 | 1.0 / 1.0 / 1.0 |
+| Red-flag recall (critical values) | 1.0, with 0 false alarms |
+| Differential top-1 / top-3 accuracy | 1.0 / 1.0 |
+
+| LLM pipeline — fair comparison on the 10 cases both completed | Condition named | Grounded | Avg latency |
+|---|---|---|---|
+| Groq `openai/gpt-oss-120b` | 10/10 | 9/10 | 24.3 s |
+| Gemini `gemini-3.6-flash` | 10/10 | 10/10 | 10.6 s |
+
+On all 30 cases Groq named the expected condition every time and passed the grounding check in 90% of answers (avg 1.2 attempts). Gemini hit its free-tier quota after 10 cases.
+
+> **Caveat:** the cases are synthetic and were written alongside the parser and rules, so perfect deterministic scores show internal consistency and protect against regressions — not accuracy on real-world reports, which come in messier formats. A pytest guard keeps red-flag recall at 100%.
 
 ### Live end-to-end check
 
@@ -274,14 +305,16 @@ The API was also verified end-to-end against live MongoDB, Pinecone and Groq wit
 - [x] LangGraph pipeline with grounding check
 - [x] Doctor-in-the-loop review, doctor–patient assignment and audit log
 - [x] Report deletion and PII redaction before indexing / LLM calls
-- [ ] RAG evaluation (RAGAS) and Groq vs Gemini comparison on a test set
-- [ ] JWT authentication, Docker and cloud deployment
+- [x] Evaluation harness (30 synthetic cases) and Groq vs Gemini comparison
+- [x] JWT authentication
+- [ ] Real-world evaluation set (anonymised reports)
+- [ ] Docker and cloud deployment
 
 ---
 
 ## Security & Privacy Notes
 
-- Passwords are hashed with bcrypt; secrets live only in `.env` (never committed).
+- Passwords are hashed with bcrypt and sent only once, at login; requests use short-lived JWTs. Secrets live only in `.env` (never committed).
 - Uploaded reports are excluded from version control.
 - Personal identifiers are removed before text reaches Pinecone or the LLM; the raw upload stays on the server until the patient deletes it.
 - Doctors only see assigned patients; every sensitive action is written to the audit log.
