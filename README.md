@@ -13,9 +13,9 @@ An AI system that reads a patient's medical report (PDF or TXT) and generates a 
 - **Page-level citations** — every answer lists its sources, e.g. `report.pdf (page 2)`.
 - **Multi-file upload** — upload several PDF/TXT files at once; all are indexed under one document ID.
 - **Role-based access control (RBAC)**
-  - **Patient** — upload reports, request diagnoses (own reports only)
-  - **Doctor** — view patients' diagnosis history
-  - **Admin** — create doctor/patient/admin accounts, list users
+  - **Patient** — upload, view and delete own reports; request diagnoses; see doctor-verified results
+  - **Doctor** — review (approve / edit / reject) AI answers and view history **for assigned patients only**
+  - **Admin** — create accounts, assign patients to doctors, read the audit log
 - **Secure signup** — public signup always creates a *patient*; doctors are created only by an admin.
 - **Switchable LLM** — Groq (default `openai/gpt-oss-120b`) or Google Gemini via one `.env` setting; each answer records which model produced it.
 - **Audit-friendly history** — every diagnosis is stored with question, answer, sources, model and timestamp.
@@ -28,6 +28,11 @@ An AI system that reads a patient's medical report (PDF or TXT) and generates a 
 - **Medical knowledge base (dual-source RAG)** — 16 curated conditions with lab patterns, summaries, confirmatory tests and MedlinePlus references, kept separate from patient facts and cited as `[KB: name]`.
 - **Ranked differential diagnosis** — every condition is scored by rules from the lab pattern (supporting vs contradicting vs not-measured values) into High / Medium / Low likelihood; the LLM explains the ranking.
 - **LangGraph pipeline with grounding check** — a second LLM call verifies that every patient-specific statement is supported by the report; unsupported answers are regenerated once, then flagged (or refused).
+- **Doctor-in-the-loop** — every AI answer starts as a *pending review* draft; the patient's assigned doctor approves, edits or rejects it, and the patient sees a **Doctor-verified** badge. The original AI draft is kept.
+- **Doctor–patient assignment** — admins assign patients to doctors; doctors can only see their own patients' records.
+- **Audit log** — signups, logins, failed logins, uploads, lab views, diagnoses, history views, reviews, assignments and deletions are recorded; admins can filter the log.
+- **Right to delete** — patients can permanently delete a report: vectors, raw files, the report record and its diagnosis history.
+- **Privacy by design** — names, patient IDs, dates of birth, phone numbers, emails and addresses are removed **before** text is indexed or sent to an LLM (age and sex are kept).
 
 ---
 
@@ -110,6 +115,13 @@ The embedding model is only used for **similarity search**. The LLM receives the
 | `GET` | `/reports/{doc_id}/labs` | Patient (own) / Doctor | Structured lab values, abnormal values and critical alerts |
 | `POST` | `/diagnosis/from_report` | Patient | Ask a question about **own** report |
 | `GET` | `/diagnosis/by_patient_name` | Doctor | View a patient's diagnosis history |
+| `DELETE` | `/reports/{doc_id}` | Patient (own) / Admin | Permanently delete a report everywhere |
+| `GET` | `/diagnosis/mine` | Patient | Own diagnosis history with review status |
+| `GET` | `/diagnosis/pending` | Doctor | Review queue for assigned patients |
+| `POST` | `/diagnosis/{record_id}/review` | Doctor (assigned) | Approve, edit or reject an AI answer |
+| `POST` / `DELETE` | `/assignments` | Admin | Assign / unassign a patient to a doctor |
+| `GET` | `/assignments` | Admin / Doctor | All assignments (admin) or own patients (doctor) |
+| `GET` | `/audit` | Admin | Audit log, filterable by user and action |
 | `GET` | `/health` | Public | Health check |
 
 Interactive docs are available at `http://127.0.0.1:8000/docs` while the server is running.
@@ -127,7 +139,12 @@ Interactive docs are available at `http://127.0.0.1:8000/docs` while the server 
 │   ├── auth/
 │   │   ├── route.py            # signup, login, admin user management, RBAC
 │   │   ├── models.py           # request schemas + validation
+│   │   ├── assignments.py      # doctor–patient assignments
 │   │   └── hash_utils.py       # bcrypt hashing
+│   ├── privacy/
+│   │   └── redact.py           # removes personal identifiers before indexing / LLM calls
+│   ├── audit.py                # log_event(): append-only audit trail
+│   ├── audit_routes.py         # admin audit-log endpoint
 │   ├── config/
 │   │   ├── db.py               # MongoDB collections
 │   │   ├── embeddings.py       # shared embedding model (loaded once)
@@ -197,6 +214,7 @@ Copy `.env.example` to `.env` and fill in your values:
 | `UPLOAD_DIR` | Where uploaded files are saved |
 | `RERANKER_ENABLED`, `RERANKER_TIMEOUT` | Cross-encoder reranker on/off and max wait (seconds) |
 | `GROUNDING_CHECK`, `GROUNDING_MODE` | Grounding check on/off; `warn` (flag) or `refuse` unsupported answers |
+| `PII_REDACTION` | Remove personal identifiers before indexing and LLM calls (default `true`) |
 | `ADMIN_USERNAME`, `ADMIN_PASSWORD` | First admin account, created at startup |
 
 Create `client/.env` with:
@@ -225,7 +243,7 @@ Open **http://localhost:8501**.
 
 ### Automated tests (offline)
 
-99 pytest tests cover auth/RBAC, upload, retrieval isolation, hybrid retrieval and reranking, diagnosis, doctor history, My Reports, lab extraction and flagging, critical-value rules, OCR, the knowledge base, the differential diagnosis and every path of the LangGraph grounding loop. MongoDB, Pinecone, the embedding model and the LLM are replaced by in-memory fakes, so the suite runs in seconds, needs no API keys and never touches real data.
+125 pytest tests cover auth/RBAC, doctor–patient assignments, doctor review, the audit log, report deletion, PII redaction, upload, retrieval isolation, hybrid retrieval and reranking, diagnosis, doctor history, My Reports, lab extraction and flagging, critical-value rules, OCR, the knowledge base, the differential diagnosis and every path of the LangGraph grounding loop. MongoDB, Pinecone, the embedding model and the LLM are replaced by in-memory fakes, so the suite runs in seconds, needs no API keys and never touches real data.
 
 ```bash
 pip install -r requirements-dev.txt
@@ -254,7 +272,8 @@ The API was also verified end-to-end against live MongoDB, Pinecone and Groq wit
 - [x] Medical knowledge base (dual-source RAG) and ranked differential diagnosis
 - [x] Hybrid retrieval (vector + BM25) with cross-encoder reranking
 - [x] LangGraph pipeline with grounding check
-- [ ] Doctor-in-the-loop review, doctor–patient assignment and audit log
+- [x] Doctor-in-the-loop review, doctor–patient assignment and audit log
+- [x] Report deletion and PII redaction before indexing / LLM calls
 - [ ] RAG evaluation (RAGAS) and Groq vs Gemini comparison on a test set
 - [ ] JWT authentication, Docker and cloud deployment
 
@@ -264,5 +283,7 @@ The API was also verified end-to-end against live MongoDB, Pinecone and Groq wit
 
 - Passwords are hashed with bcrypt; secrets live only in `.env` (never committed).
 - Uploaded reports are excluded from version control.
+- Personal identifiers are removed before text reaches Pinecone or the LLM; the raw upload stays on the server until the patient deletes it.
+- Doctors only see assigned patients; every sensitive action is written to the audit log.
 - Embeddings can be partially inverted, so the vector store is treated as sensitive data.
 - Use only **sample or synthetic reports** with free-tier LLM APIs.
