@@ -312,6 +312,13 @@ else:
                             st.success("Diagnosis Generated!")
                             st.write("---")
                             st.subheader("Diagnosis Result")
+                            if data.get("grounded") is True:
+                                st.caption("✅ Checked: patient-specific statements are supported by your report.")
+                            elif data.get("grounded") is False:
+                                st.warning(
+                                    "⚠️ Some statements could not be verified against your report: "
+                                    f"{data.get('grounding_note') or 'unknown'}"
+                                )
                             st.markdown(data.get("diagnosis") or "No diagnosis provided.")
                             st.write("---")
                             st.subheader("Sources")
