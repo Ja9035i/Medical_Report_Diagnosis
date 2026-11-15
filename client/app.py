@@ -69,6 +69,19 @@ def upload_report(auth, files):
     except requests.exceptions.ConnectionError:
         return 503, {"detail": "Server is unavailable. Please try again later."}
     
+# 3b. List the logged-in patient's reports
+def get_my_reports(auth):
+    try:
+        response = requests.get(f"{API_URL}/reports/mine", auth=auth)
+        return response.status_code, response.json()
+    except requests.exceptions.ConnectionError:
+        return 503, {"detail": "Server is unavailable. Please try again later."}
+
+
+def report_label(report):
+    uploaded = datetime.datetime.fromtimestamp(report["uploaded_at"]).strftime("%Y-%m-%d %H:%M")
+    return f"{', '.join(report['filenames'])} — {uploaded} ({report['num_chunks']} chunks)"
+
 #  4. Diagnosis  Function
 def get_diagnosis(auth, doc_id, question):
     try:
@@ -206,11 +219,23 @@ else:
         st.markdown("---")
 
         st.subheader("Get a Diagnosis")
-        if 'doc_id' in st.session_state:
+        reports_status, my_reports = get_my_reports(st.session_state.auth)
+        if reports_status != 200:
+            st.error(f"Could not load your reports: {format_error(my_reports)}")
+            my_reports = []
+
+        if my_reports:
             with st.form("diagnosis_form"):
-                diagnosis_doc_id = st.text_input(
-                    "Enter your Document ID",
-                    value=st.session_state.doc_id
+                report_ids = [r["doc_id"] for r in my_reports]
+                labels = {r["doc_id"]: report_label(r) for r in my_reports}
+                # Pre-select the report just uploaded, otherwise the newest one
+                default_id = st.session_state.get("doc_id")
+                default_index = report_ids.index(default_id) if default_id in report_ids else 0
+                diagnosis_doc_id = st.selectbox(
+                    "Choose one of your reports",
+                    report_ids,
+                    index=default_index,
+                    format_func=lambda doc_id: labels[doc_id],
                 )
                 diagnosis_question = st.text_area(
                     "Enter your question for the diagnosis model:",
@@ -240,7 +265,7 @@ else:
                         else:
                             st.error(f"Diagnosis failed: {format_error(data)}")
         else:
-            st.info("Please upload a report first to get a Document ID.")
+            st.info("You have no reports yet. Upload a report above to get started.")
 
     elif st.session_state.role == "doctor":
         st.header("Doctor Dashboard")
