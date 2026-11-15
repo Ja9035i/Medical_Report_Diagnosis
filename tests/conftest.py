@@ -59,6 +59,10 @@ class FakeIndex:
         for vector_id, values, metadata in vectors:
             self.vectors[vector_id] = (values, metadata)
 
+    def delete(self, ids):
+        for vector_id in ids:
+            self.vectors.pop(vector_id, None)
+
     def query(self, vector, top_k, include_metadata, filter):
         wanted = filter["doc_id"]["$eq"]
         matches = [

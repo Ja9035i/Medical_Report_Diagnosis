@@ -1,4 +1,6 @@
+import asyncio
 import uuid
+from pathlib import Path
 from typing import List
 
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
@@ -6,9 +8,10 @@ from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from ..audit import log_event
 from ..auth.assignments import require_assigned
 from ..auth.route import authenticate
-from ..config.db import reports_collection
+from ..config import vectordb
+from ..config.db import diagnosis_collection, reports_collection
 from ..labs.extract import abnormal
-from .vectorstore import load_vectorstore
+from .vectorstore import UPLOAD_DIR, load_vectorstore
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -77,3 +80,53 @@ def my_reports(user=Depends(authenticate)):
         r.pop("filename", None)
         reports.append(r)
     return reports
+
+DELETE_BATCH_SIZE = 1000  # Pinecone accepts up to 1000 ids per delete call
+
+
+@router.delete("/{doc_id}")
+async def delete_report(doc_id: str, user=Depends(authenticate)):
+    """
+    Permanently delete a report everywhere: Pinecone vectors, raw files on disk,
+    the report record and its diagnosis history. Owning patient or admin only.
+    """
+    report = reports_collection.find_one({"doc_id": doc_id})
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if user["role"] == "patient":
+        if report["uploader"] != user["username"]:
+            raise HTTPException(status_code=403, detail="You cannot delete another user's report")
+    elif user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only the patient or an admin can delete a report")
+
+    # 1) Vectors first: if this fails, nothing else is deleted and the request can be retried
+    ids = [c["id"] for c in report.get("chunks") or []] or           [f"{doc_id}-{i}" for i in range(report.get("num_chunks", 0))]
+    try:
+        index = vectordb.get_index()
+
+        def delete_vectors():
+            for start in range(0, len(ids), DELETE_BATCH_SIZE):
+                index.delete(ids=ids[start:start + DELETE_BATCH_SIZE])
+
+        if ids:
+            await asyncio.to_thread(delete_vectors)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Could not delete vectors; nothing was removed: {exc}")
+
+    # 2) Raw files on disk (saved as "<doc_id>_<filename>")
+    files_deleted = 0
+    for path in Path(UPLOAD_DIR).glob(f"{doc_id}_*"):
+        try:
+            path.unlink()
+            files_deleted += 1
+        except OSError as exc:
+            print(f"[delete] could not remove {path}: {exc}")
+
+    # 3) Database records
+    diagnoses_deleted = diagnosis_collection.delete_many({"doc_id": doc_id}).deleted_count
+    reports_collection.delete_one({"doc_id": doc_id})
+
+    log_event(user["username"], user["role"], "report_deleted", doc_id, patient=report["uploader"],
+              vectors=len(ids), files=files_deleted, diagnoses=diagnoses_deleted)
+    return {"doc_id": doc_id, "vectors_deleted": len(ids), "files_deleted": files_deleted,
+            "diagnoses_deleted": diagnoses_deleted}
