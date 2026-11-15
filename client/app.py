@@ -410,6 +410,32 @@ else:
                 if record.get("doctor_note"):
                     st.info(f"**Doctor's note:** {record['doctor_note']}")
 
+        if my_reports:
+            st.markdown("---")
+            with st.expander("🗑️ Delete a report"):
+                st.caption("Permanently removes the file, its search index entries and its diagnosis history.")
+                with st.form("delete_form"):
+                    delete_id = st.selectbox("Report to delete", [r["doc_id"] for r in my_reports],
+                                             format_func=lambda doc_id: report_label(
+                                                 next(r for r in my_reports if r["doc_id"] == doc_id)))
+                    confirm = st.checkbox("I understand this cannot be undone")
+                    if st.form_submit_button("Delete permanently"):
+                        if not confirm:
+                            st.warning("Please tick the confirmation box first.")
+                        else:
+                            try:
+                                response = requests.delete(f"{API_URL}/reports/{delete_id}", auth=st.session_state.auth)
+                                data = response.json()
+                                if response.status_code == 200:
+                                    st.success(f"Deleted ({data['diagnoses_deleted']} diagnosis record(s) removed). "
+                                               "Refresh to update the lists.")
+                                    if st.session_state.get("doc_id") == delete_id:
+                                        del st.session_state["doc_id"]
+                                else:
+                                    st.error(format_error(data))
+                            except requests.exceptions.ConnectionError:
+                                st.error("Server is unavailable. Please try again later.")
+
     elif st.session_state.role == "doctor":
         st.header("Doctor Dashboard")
         st.markdown("---")
