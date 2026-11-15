@@ -25,6 +25,7 @@ os.environ.update({
     "ADMIN_USERNAME": "admin",
     "ADMIN_PASSWORD": "adminpass123",
     "LLM_PROVIDER": "groq",
+    "RERANKER_ENABLED": "false",  # no model download in tests; reranking is tested with a fake
     "UPLOAD_DIR": tempfile.mkdtemp(prefix="test_uploads_"),
 })
 
