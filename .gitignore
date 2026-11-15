@@ -9,3 +9,10 @@ wheels/
 # Virtual environments
 .venv
 .env
+
+# Uploaded medical reports (private data, never commit)
+uploaded_dir/
+uploaded_reports/
+
+# Logs
+*.log
