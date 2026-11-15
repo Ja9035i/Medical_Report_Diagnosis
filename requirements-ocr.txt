@@ -1,0 +1,4 @@
+-r requirement.txt
+# Optional OCR for scanned PDFs and photos of reports
+rapidocr-onnxruntime
+pypdfium2
