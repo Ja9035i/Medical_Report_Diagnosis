@@ -1,0 +1,4 @@
+-r requirement.txt
+pytest
+mongomock
+httpx
