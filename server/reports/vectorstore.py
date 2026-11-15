@@ -6,23 +6,16 @@ from typing import List
 
 from dotenv import load_dotenv
 from fastapi import UploadFile, HTTPException
-from langchain_community.document_loaders import PyPDFLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+from ..config import embeddings, vectordb
 from ..config.db import reports_collection
-from ..config.embeddings import get_embed_model
-from ..config.vectordb import index
+from .loaders import LOADERS
 
 load_dotenv()
 
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "./uploaded_dir")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
-
-# File type -> LangChain loader. Each loader returns a list of Documents.
-LOADERS = {
-    ".pdf": lambda path: PyPDFLoader(path),
-    ".txt": lambda path: TextLoader(path, encoding="utf-8"),
-}
 
 UPSERT_BATCH_SIZE = 100  # stay well under Pinecone's per-request size limit
 
@@ -58,8 +51,7 @@ async def load_vectorstore(uploaded_files: List[UploadFile], uploaded: str, doc_
             f.write(content)
 
         # 2) Load -> 3) split, for EVERY file (previously only the last file was indexed)
-        loader = LOADERS[ext](str(save_path))
-        documents = await asyncio.to_thread(loader.load)
+        documents = await asyncio.to_thread(LOADERS[ext], str(save_path))
         chunks = splitter.split_documents(documents)
         for chunk in chunks:
             chunk.metadata["source"] = filename
@@ -85,15 +77,16 @@ async def load_vectorstore(uploaded_files: List[UploadFile], uploaded: str, doc_
         }
         page = chunk.metadata.get("page")
         if page is not None:  # Pinecone rejects null metadata; TXT files have no pages
-            md["page"] = int(page) + 1  # PyPDFLoader pages are 0-based; store human page numbers
+            md["page"] = int(page)  # loaders already use 1-based page numbers
         metadatas.append(md)
 
     # 4) Embed with the shared model (loaded once per process)
-    embed_model = get_embed_model()
-    embeddings = await asyncio.to_thread(lambda: embed_model.encode(texts).tolist())
+    embed_model = embeddings.get_embed_model()
+    vectors_values = await asyncio.to_thread(lambda: embed_model.encode(texts).tolist())
 
     # 5) Upsert in batches
-    vectors = list(zip(ids, embeddings, metadatas))
+    vectors = list(zip(ids, vectors_values, metadatas))
+    index = vectordb.get_index()
 
     def upsert():
         for start in range(0, len(vectors), UPSERT_BATCH_SIZE):

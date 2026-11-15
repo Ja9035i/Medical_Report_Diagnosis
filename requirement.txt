@@ -4,7 +4,6 @@ pymongo
 python-multipart
 pypdf
 langchain
-langchain-community
 langchain-core
 langchain-text-splitters
 langchain-groq
