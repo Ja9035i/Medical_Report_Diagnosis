@@ -1,21 +1,53 @@
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
-from ..auth.route import authenticate
-from .vectorstore import load_vectorstore
 import uuid
 from typing import List
+
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
+
+from ..auth.route import authenticate
 from ..config.db import reports_collection
+from ..labs.extract import abnormal
+from .vectorstore import load_vectorstore
 
+router = APIRouter(prefix="/reports", tags=["reports"])
 
-router=APIRouter(prefix="/reports",tags=["reports"])
 
 @router.post("/upload")
-async def upload_reports(user=Depends(authenticate),files:List[UploadFile]=File(...)):
-    if user["role"] !="patient":
-        raise HTTPException(status_code=403,detail="Only patients can upload reports for diagnosis")
-    
-    doc_id=str(uuid.uuid4())
-    num_chunks = await load_vectorstore(files, uploaded=user["username"], doc_id=doc_id)
-    return {"message": "Uploaded and indexed", "doc_id": doc_id, "num_chunks": num_chunks}
+async def upload_reports(user=Depends(authenticate), files: List[UploadFile] = File(...)):
+    if user["role"] != "patient":
+        raise HTTPException(status_code=403, detail="Only patients can upload reports for diagnosis")
+
+    doc_id = str(uuid.uuid4())
+    result = await load_vectorstore(files, uploaded=user["username"], doc_id=doc_id)
+    return {
+        "message": "Uploaded and indexed",
+        "doc_id": doc_id,
+        "num_chunks": result["num_chunks"],
+        "labs_found": len(result["labs"]),
+        "abnormal_count": len(abnormal(result["labs"])),
+        "critical_alerts": result["critical_alerts"],
+    }
+
+
+@router.get("/{doc_id}/labs")
+def report_labs(doc_id: str, user=Depends(authenticate)):
+    """Structured lab values for a report: the owning patient or a doctor may view them."""
+    report = reports_collection.find_one({"doc_id": doc_id}, {"_id": 0})
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if user["role"] == "patient" and report["uploader"] != user["username"]:
+        raise HTTPException(status_code=403, detail="You cannot access another user's report")
+    if user["role"] not in ("patient", "doctor"):
+        raise HTTPException(status_code=403, detail="Only the patient or a doctor can view lab results")
+
+    labs = report.get("labs", [])
+    return {
+        "doc_id": doc_id,
+        "uploader": report["uploader"],
+        "labs": labs,
+        "abnormal": abnormal(labs),
+        "critical_alerts": report.get("critical_alerts", []),
+        "extracted": "labs" in report,  # False for reports uploaded before lab extraction existed
+    }
 
 
 @router.get("/mine")

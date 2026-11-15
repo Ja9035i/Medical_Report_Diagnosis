@@ -131,6 +131,38 @@ def admin_list_users(auth):
         return 503, {"detail": "Server is unavailable. Please try again later."}
 
 
+def show_critical_banner(alerts):
+    """Red URGENT banner for rule-detected critical values (shown before any AI text)."""
+    if alerts:
+        st.error(
+            "🚨 **URGENT — critical lab value(s) detected. Please seek medical care immediately.**\n\n"
+            + "\n".join(f"- {alert}" for alert in alerts)
+        )
+
+
+def show_lab_table(labs):
+    rows = []
+    for lab in labs:
+        low, high = lab.get("ref_low"), lab.get("ref_high")
+        if low is not None and high is not None:
+            ref = f"{low:g} – {high:g}"
+        elif high is not None:
+            ref = f"≤ {high:g}"
+        elif low is not None:
+            ref = f"≥ {low:g}"
+        else:
+            ref = "—"
+        rows.append({
+            "Test": lab["test"],
+            "Value": f"{lab['value']:g} {lab.get('unit') or ''}".strip(),
+            "Reference": ref,
+            "Flag": ("🔴 CRITICAL " if lab.get("critical") else "") + lab["flag"],
+            "Range from": lab.get("range_source") or "—",
+            "Source": lab.get("source", ""),
+        })
+    st.table(rows)
+
+
 def format_error(data):
     """FastAPI returns a string detail, or a list of validation errors (422)."""
     detail = data.get("detail", "Unknown error") if isinstance(data, dict) else data
@@ -208,9 +240,11 @@ else:
                 with st.spinner("Uploading and processing reports..."):
                     status_code, data = upload_report(st.session_state.auth, uploaded_files)
                     if status_code == 200:
+                        show_critical_banner(data.get("critical_alerts", []))
                         st.success(
                             f"Reports uploaded and indexed ({data.get('num_chunks', '?')} chunks). "
-                            f"Your Document ID is: `{data['doc_id']}`"
+                            f"Found {data.get('labs_found', 0)} lab values, "
+                            f"{data.get('abnormal_count', 0)} outside the reference range."
                         )
                         st.session_state.doc_id = data['doc_id'] # Store doc_id for later use
                     else:
@@ -250,6 +284,11 @@ else:
                             diagnosis_question
                         )
                         if status_code == 200:
+                            # Rule-based alerts come BEFORE any AI-generated text
+                            show_critical_banner(data.get("critical_alerts", []))
+                            if data.get("abnormal_labs"):
+                                st.subheader("Abnormal Lab Values (rule-checked)")
+                                show_lab_table(data["abnormal_labs"])
                             st.success("Diagnosis Generated!")
                             st.write("---")
                             st.subheader("Diagnosis Result")

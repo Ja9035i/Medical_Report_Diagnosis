@@ -25,7 +25,8 @@ async def diagnos(
     if report["uploader"] != user["username"]:
         raise HTTPException(status_code=403, detail="You cannot access another user's report")
 
-    res = await diagnosis_report(user["username"], doc_id, question)
+    res = await diagnosis_report(user["username"], doc_id, question, labs=report.get("labs", []))
+    res["critical_alerts"] = report.get("critical_alerts", [])
 
     if res["diagnosis"] is None:
         # Nothing retrieved: don't store an empty answer in the history
