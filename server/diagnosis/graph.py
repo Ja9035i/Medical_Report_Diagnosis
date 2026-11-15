@@ -135,7 +135,7 @@ async def generate_node(state: DiagnosisState):
         "knowledge": format_knowledge(state.get("kb_entries")),
         "feedback": feedback,
     })
-    return {"answer": result.content, "attempts": state.get("attempts", 0) + 1}
+    return {"answer": llm.message_text(result), "attempts": state.get("attempts", 0) + 1}
 
 
 async def check_grounding_node(state: DiagnosisState):
@@ -149,7 +149,7 @@ async def check_grounding_node(state: DiagnosisState):
         "lab_flags": format_lab_flags(state.get("labs")),
         "answer": state["answer"],
     })
-    grounded, note = parse_verdict(verdict.content)
+    grounded, note = parse_verdict(llm.message_text(verdict))
     return {"grounded": grounded, "grounding_note": note}
 
 
