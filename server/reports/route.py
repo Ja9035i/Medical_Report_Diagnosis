@@ -33,6 +33,7 @@ async def upload_reports(user=Depends(authenticate), files: List[UploadFile] = F
         "labs_found": len(result["labs"]),
         "abnormal_count": len(abnormal(result["labs"])),
         "critical_alerts": result["critical_alerts"],
+        "redacted": result["redacted"],  # personal identifiers removed before indexing
     }
 
 
