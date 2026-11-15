@@ -25,7 +25,7 @@ def test_login_returns_token_and_token_works(client, signup, upload):
     assert payload["sub"] == "alice" and "password" not in str(payload)
 
     h = bearer(body["access_token"])
-    assert client.get("/auth/me", headers=h).json() == {"username": "alice", "role": "patient"}
+    assert client.get("/auth/me", headers=h).json() == {"username": "alice", "role": "patient", "full_name": None}
     files = [("files", ("cbc.txt", b"Hemoglobin: 9.1 g/dL (reference 13.0-17.0)", "text/plain"))]
     assert client.post("/reports/upload", headers=h, files=files).status_code == 200
     assert len(client.get("/reports/mine", headers=h).json()) == 1

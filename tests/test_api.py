@@ -47,7 +47,7 @@ def test_admin_bootstrapped_and_creates_doctor(client, admin_auth):
 def test_admin_list_users_hides_passwords(client, admin_auth, signup):
     signup("alice")
     users = client.get("/auth/users", auth=admin_auth).json()
-    assert {"username": "alice", "role": "patient"} in users
+    assert {"username": "alice", "role": "patient", "full_name": None} in users
     assert all("password" not in u for u in users)
 
 
